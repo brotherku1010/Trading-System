@@ -16,24 +16,15 @@ if %errorlevel% neq 0 (
     exit /b
 )
 
-:: Check Remote Origin URL
+:: Automatically configure GitHub Remote URL
 git remote get-url origin >nul 2>nul
 if %errorlevel% neq 0 (
-    echo [SETUP] GitHub Remote URL is not set yet!
-    echo Please create a public repository on GitHub (e.g. paw-trading)
-    echo and paste your HTTPS clone URL below (e.g. https://github.com/user/repo.git)
-    echo.
-    set /p repo_url="Enter GitHub HTTPS URL: "
-    if "%repo_url%"=="" (
-        echo [ERROR] URL cannot be empty.
-        pause
-        exit /b
-    )
-    :: Remove quotes
-    set repo_url=%repo_url:"=%
-    git remote add origin %repo_url%
-    echo [SUCCESS] Remote origin added successfully.
-    echo.
+    echo [SETUP] Configuring GitHub Remote origin automatically...
+    git remote add origin https://github.com/brotherku1010/Trading-System.git
+    echo [SUCCESS] Linked to https://github.com/brotherku1010/Trading-System.git
+) else (
+    :: Ensure the URL is correct even if it was previously set incorrectly
+    git remote set-url origin https://github.com/brotherku1010/Trading-System.git
 )
 
 echo [1/3] Adding changes (git add) ...
