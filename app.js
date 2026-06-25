@@ -170,6 +170,11 @@ function initTradingView() {
         "save_image": false,
         "container_id": containerId,
         "chart": state.layoutId, // Include chart layout ID
+        "studies": [
+          "RSI@tv-basicstudies",
+          "MACD@tv-basicstudies",
+          "Volume@tv-basicstudies"
+        ],
         "disabled_features": [
           "header_symbol_search" // Disable manual search to maintain our clean UI flow
         ]
@@ -462,7 +467,26 @@ function setupEventListeners() {
   if (btnOpenOfficial) {
     btnOpenOfficial.addEventListener('click', () => {
       const url = `https://cn.tradingview.com/chart/${state.layoutId}/`;
-      window.open(url, '_blank');
+      const isMobile = /Android|iPhone|iPad|iPod|Windows Phone/i.test(navigator.userAgent);
+      
+      if (isMobile) {
+        // Try to copy to clipboard
+        copyTextToClipboard(url);
+        
+        // Show copy modal
+        const copyModal = document.getElementById('copy-modal');
+        const copyModalUrl = document.getElementById('copy-modal-url');
+        if (copyModal) {
+          if (copyModalUrl) copyModalUrl.textContent = url;
+          copyModal.classList.remove('hidden');
+          setTimeout(() => {
+            copyModal.classList.remove('opacity-0');
+            copyModal.classList.add('opacity-100');
+          }, 10);
+        }
+      } else {
+        window.open(url, '_blank');
+      }
     });
   }
 
@@ -499,6 +523,69 @@ function setupEventListeners() {
       if (e.target === helpModal) closeModal();
     });
   }
+
+  // Copy Modal Controls
+  const copyModal = document.getElementById('copy-modal');
+  const btnCloseCopy = document.getElementById('btn-close-copy');
+  const btnCloseCopyConfirm = document.getElementById('btn-close-copy-confirm');
+  const btnCopyModalOpenAnyway = document.getElementById('btn-copy-modal-open-anyway');
+
+  if (copyModal) {
+    const closeCopyModal = () => {
+      copyModal.classList.remove('opacity-100');
+      copyModal.classList.add('opacity-0');
+      setTimeout(() => {
+        copyModal.classList.add('hidden');
+      }, 200);
+    };
+
+    if (btnCloseCopy) btnCloseCopy.addEventListener('click', closeCopyModal);
+    if (btnCloseCopyConfirm) btnCloseCopyConfirm.addEventListener('click', closeCopyModal);
+    if (btnCopyModalOpenAnyway) {
+      btnCopyModalOpenAnyway.addEventListener('click', () => {
+        const url = `https://cn.tradingview.com/chart/${state.layoutId}/`;
+        window.open(url, '_blank');
+        closeCopyModal();
+      });
+    }
+
+    copyModal.addEventListener('click', (e) => {
+      if (e.target === copyModal) closeCopyModal();
+    });
+  }
+}
+
+// Helper: Copy text to clipboard (works on mobile webviews)
+function copyTextToClipboard(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => {
+      console.log('[Clipboard] Copied successfully');
+    }).catch(err => {
+      console.error('[Clipboard] Failed: ', err);
+      fallbackCopyTextToClipboard(text);
+    });
+  } else {
+    fallbackCopyTextToClipboard(text);
+  }
+}
+
+// Fallback: Copy text using dynamic textarea
+function fallbackCopyTextToClipboard(text) {
+  const textArea = document.createElement("textarea");
+  textArea.value = text;
+  textArea.style.top = "0";
+  textArea.style.left = "0";
+  textArea.style.position = "fixed";
+  document.body.appendChild(textArea);
+  textArea.focus();
+  textArea.select();
+  try {
+    document.execCommand('copy');
+    console.log('[Clipboard Fallback] Copied successfully');
+  } catch (err) {
+    console.error('[Clipboard Fallback] Failed: ', err);
+  }
+  document.body.removeChild(textArea);
 }
 
 // 9. Register Service Worker for PWA Add-To-Home-Screen Support
