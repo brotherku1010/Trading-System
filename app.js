@@ -149,15 +149,8 @@ function initTradingView() {
         "save_image": false,
         "container_id": containerId,
         
-        // =========================================================================
-        // [自訂指標/版面載入設定]
-        // 1. 若想直接載入您儲存的 TradingView 版面（包含自訂指標），請取消下方 "chart" 註解：
-        //    並填入您的版面 ID（例如您的分享網址為 tradingview.com/chart/u1yYn7sB/，則 ID 為 "u1yYn7sB"）
-        //    "chart": "您的版面ID", 
-        // 
-        // 2. 若想在預設空圖表直接加載特定指標，可以在下方 "studies" 陣列中新增：
-        //    例如: "RSI@tv-basicstudies", "BollingerBandsWidth@tv-basicstudies", 或您的 Pine Script 名稱
-        // =========================================================================
+        // 載入您的分享圖表版面（包含自訂的指標與線條畫記）
+        "chart": "WGy9kw3R", 
         "studies": [
           "RSI@tv-basicstudies",
           "MASimple@tv-basicstudies"
