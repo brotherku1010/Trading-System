@@ -12,7 +12,8 @@ const WORKER_URL = window.location.hostname === 'localhost' || window.location.h
 const state = {
   activeAsset: 'XAUUSD', // 'XAUUSD', 'BTCUSD', 'ETHUSD'
   activeTab: 'charts',   // 'charts', 'sentiment', 'macro'
-  tvWidget: null
+  tvWidget: null,
+  layoutId: localStorage.getItem('tradingview_layout_id') || 'WGy9kw3R'
 };
 
 // Asset Map config
@@ -84,6 +85,7 @@ const newsTickerData = [
 
 // 3. Initialize App
 window.addEventListener('DOMContentLoaded', () => {
+  updateLayoutDisplay();
   setupMarquee();
   initTradingView();
   renderSentiment();
@@ -91,6 +93,25 @@ window.addEventListener('DOMContentLoaded', () => {
   setupEventListeners();
   registerServiceWorker();
 });
+
+// Helper: Update Layout ID in UI
+function updateLayoutDisplay() {
+  const displayEl = document.getElementById('layout-display-id');
+  if (displayEl) {
+    displayEl.textContent = state.layoutId;
+  }
+}
+
+// Helper: Parse layout ID from URL or raw string
+function parseTradingViewLayoutId(input) {
+  if (!input) return 'WGy9kw3R';
+  input = input.trim();
+  const match = input.match(/\/chart\/([a-zA-Z0-9]+)/);
+  if (match && match[1]) {
+    return match[1];
+  }
+  return input;
+}
 
 // 4. Setup Marquee News Ticker (Fetches live or falls back)
 async function setupMarquee() {
@@ -148,6 +169,7 @@ function initTradingView() {
         "calendar": true,
         "save_image": false,
         "container_id": containerId,
+        "chart": state.layoutId, // Include chart layout ID
         "disabled_features": [
           "header_symbol_search" // Disable manual search to maintain our clean UI flow
         ]
@@ -414,6 +436,35 @@ function setupEventListeners() {
       }
     });
   });
+
+  // TradingView Sync & Layout Controls
+  const btnEditLayout = document.getElementById('btn-edit-layout');
+  if (btnEditLayout) {
+    btnEditLayout.addEventListener('click', () => {
+      const currentVal = state.layoutId;
+      const input = prompt(
+        '請輸入您的 TradingView 分享網址或版面 ID：\n例如: https://cn.tradingview.com/chart/WGy9kw3R/\n或直接輸入 ID: WGy9kw3R',
+        currentVal
+      );
+      if (input !== null) {
+        const newId = parseTradingViewLayoutId(input);
+        if (newId) {
+          state.layoutId = newId;
+          localStorage.setItem('tradingview_layout_id', newId);
+          updateLayoutDisplay();
+          initTradingView();
+        }
+      }
+    });
+  }
+
+  const btnOpenOfficial = document.getElementById('btn-open-official');
+  if (btnOpenOfficial) {
+    btnOpenOfficial.addEventListener('click', () => {
+      const url = `https://cn.tradingview.com/chart/${state.layoutId}/`;
+      window.open(url, '_blank');
+    });
+  }
 }
 
 // 9. Register Service Worker for PWA Add-To-Home-Screen Support
