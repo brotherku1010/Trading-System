@@ -58,6 +58,9 @@
               <span id="layout-display-id">WGy9kw3R</span>
               <span class="text-[10px]">📝</span>
             </button>
+            <button id="btn-help-sync" class="text-slate-400 hover:text-slate-200 ml-1 flex items-center justify-center w-5 h-5 bg-slate-800 rounded-full font-bold focus:outline-none transition-colors" title="同步說明">
+              <span>?</span>
+            </button>
           </div>
           <button id="btn-open-official" class="bg-blue-600 hover:bg-blue-500 text-white font-bold px-2.5 py-1 rounded flex items-center gap-1 shadow-md transition-all active:scale-95">
             <span>🔑</span> <span>開啟官方完整版 (可登入同步)</span>
@@ -106,6 +109,44 @@
       </button>
     </nav>
     
+  </div>
+
+  <!-- TradingView Sync Help Modal -->
+  <div id="help-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden opacity-0 transition-all duration-200">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-sm w-full p-5 shadow-2xl space-y-4">
+      <div class="flex justify-between items-center border-b border-slate-800 pb-2">
+        <h3 class="text-sm font-bold text-white flex items-center gap-1.5">
+          <span>❓</span> TradingView 同步與登入說明
+        </h3>
+        <button id="btn-close-help" class="text-slate-400 hover:text-white text-lg font-bold focus:outline-none">&times;</button>
+      </div>
+      
+      <div class="text-xs text-slate-300 space-y-3 leading-relaxed">
+        <p class="font-semibold text-yellow-500">📌 為什麼 App 內嵌圖表顯示「原版介面」且沒有同步您的指標？</p>
+        <ol class="list-decimal pl-4 space-y-1.5">
+          <li><strong>瀏覽器安全性限制：</strong>現代瀏覽器會完全阻擋第三方網域（我們的 App）讀取官網的登入 Cookie。因此內嵌圖表永遠是「未登入（訪客）」狀態。</li>
+          <li><strong>私密指標無法被搜尋：</strong>因為您的自訂指標目前是「私密出版」，在未登入狀態下，內嵌圖表無法取得權限載入它們。</li>
+        </ol>
+        
+        <p class="font-semibold text-blue-400">💡 解決方案與使用方法：</p>
+        <ul class="list-disc pl-4 space-y-2">
+          <li>
+            <strong>方法一（推薦，使用官方完整版）：</strong><br>
+            點擊右上角的 <span class="text-blue-400 font-semibold">🔑 開啟官方完整版</span> 按鈕。在新分頁直接登入您的帳號，瀏覽器會記住 Cookie。在此分頁中即可看到完整的自訂版面與私密指標。
+          </li>
+          <li>
+            <strong>方法二（直接在 App 內看指標）：</strong><br>
+            您需要將指標在 TradingView 上發布為<strong>「公開出版物 (Public Script)」</strong>。公開後，您就可以在 App 內點擊圖表上方的 <strong>「指標 (fx)」</strong> 按鈕，搜尋指標名稱並手動新增，即可直接在 App 內看見。
+          </li>
+        </ul>
+      </div>
+      
+      <div class="pt-2">
+        <button id="btn-close-help-confirm" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 rounded-xl text-xs transition-colors focus:outline-none shadow-md">
+          我知道了
+        </button>
+      </div>
+    </div>
   </div>
 
   <!-- Main JavaScript File -->

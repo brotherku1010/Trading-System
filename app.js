@@ -465,6 +465,40 @@ function setupEventListeners() {
       window.open(url, '_blank');
     });
   }
+
+  // Help Modal Controls
+  const helpModal = document.getElementById('help-modal');
+  const btnHelpSync = document.getElementById('btn-help-sync');
+  const btnCloseHelp = document.getElementById('btn-close-help');
+  const btnCloseHelpConfirm = document.getElementById('btn-close-help-confirm');
+
+  if (helpModal && btnHelpSync) {
+    // Open Modal
+    btnHelpSync.addEventListener('click', () => {
+      helpModal.classList.remove('hidden');
+      setTimeout(() => {
+        helpModal.classList.remove('opacity-0');
+        helpModal.classList.add('opacity-100');
+      }, 10);
+    });
+
+    const closeModal = () => {
+      helpModal.classList.remove('opacity-100');
+      helpModal.classList.add('opacity-0');
+      setTimeout(() => {
+        helpModal.classList.add('hidden');
+      }, 200);
+    };
+
+    // Close Modal
+    if (btnCloseHelp) btnCloseHelp.addEventListener('click', closeModal);
+    if (btnCloseHelpConfirm) btnCloseHelpConfirm.addEventListener('click', closeModal);
+    
+    // Close by clicking overlay
+    helpModal.addEventListener('click', (e) => {
+      if (e.target === helpModal) closeModal();
+    });
+  }
 }
 
 // 9. Register Service Worker for PWA Add-To-Home-Screen Support
