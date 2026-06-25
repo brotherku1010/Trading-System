@@ -1,6 +1,14 @@
 // PAW Trading Dashboard - Core JS Logic
 
-// 1. Application State
+// 1. Cloudflare Workers Proxy URL Configuration
+// -------------------------------------------------------------
+// 當您部署好 Cloudflare Worker 後，請將下方引號內填入您的 Worker 網址，
+// 例如: 'https://paw-proxy.yourname.workers.dev'
+// 如果留空 '', 程式會自動安全地切換為離線模擬數據 (Mock Data)。
+const WORKER_URL = ''; 
+// -------------------------------------------------------------
+
+// 2. Application State
 const state = {
   activeAsset: 'XAUUSD', // 'XAUUSD', 'BTCUSD', 'ETHUSD'
   activeTab: 'charts',   // 'charts', 'sentiment', 'macro'
@@ -14,7 +22,7 @@ const assetConfig = {
     symbol: 'OANDA:XAUUSD',
     feedSymbol: 'XAUUSD',
     sentiment: {
-      source: 'OANDA 掛單多空比',
+      source: 'OANDA 掛單多空比 (離線)',
       longRatio: 54,
       shortRatio: 46,
       details: [
@@ -29,7 +37,7 @@ const assetConfig = {
     symbol: 'BINANCE:BTCUSDT',
     feedSymbol: 'BTC',
     sentiment: {
-      source: 'Coinglass 全網合約多空比 (24h)',
+      source: 'Coinglass 全網合約多空比 (離線)',
       longRatio: 51.5,
       shortRatio: 48.5,
       details: [
@@ -44,7 +52,7 @@ const assetConfig = {
     symbol: 'BINANCE:ETHUSDT',
     feedSymbol: 'ETH',
     sentiment: {
-      source: 'Coinglass 全網合約多空比 (24h)',
+      source: 'Coinglass 全網合約多空比 (離線)',
       longRatio: 48.2,
       shortRatio: 51.8,
       details: [
@@ -56,7 +64,7 @@ const assetConfig = {
   }
 };
 
-// Macro Data Calendar Mock (to be fetched by CF Worker later)
+// Macro Data Calendar Mock (Fallback data)
 const macroCalendar = [
   { time: '週四 20:30', currency: 'USD', event: '核心 PCE 物價指數年率 (PCE Inflation)', impact: 'high', previous: '2.6%', forecast: '2.5%' },
   { time: '週四 20:30', currency: 'USD', event: '初請失業金人數 (Unemployment Claims)', impact: 'medium', previous: '238K', forecast: '240K' },
@@ -65,7 +73,7 @@ const macroCalendar = [
   { time: '下週五 20:30', currency: 'USD', event: '非農就業人口變動 (NFP) / 失業率', impact: 'high', previous: '272K / 4.0%', forecast: '185K / 4.0%' }
 ];
 
-// News ticker initial list (to be fetched by CF Worker later)
+// News ticker initial list (Fallback data)
 const newsTickerData = [
   "🔥 即時快訊：美國 PCE 數據發佈前夕，市場情緒偏向保守",
   "⚡ 加密貨幣：比特幣在 $64,000 關卡持續震盪，以太坊現貨 ETF 審批迎來新進展",
@@ -74,7 +82,7 @@ const newsTickerData = [
   "💎 黃金分析：地緣政治風險稍緩，黃金在 2330 美元附近尋求底部支撐"
 ];
 
-// 2. Initialize App
+// 3. Initialize App
 window.addEventListener('DOMContentLoaded', () => {
   setupMarquee();
   initTradingView();
@@ -84,18 +92,34 @@ window.addEventListener('DOMContentLoaded', () => {
   registerServiceWorker();
 });
 
-// 3. Setup Marquee News Ticker
-function setupMarquee() {
+// 4. Setup Marquee News Ticker (Fetches live or falls back)
+async function setupMarquee() {
   const marqueeContent = document.getElementById('marquee-content');
   if (!marqueeContent) return;
   
+  let newsList = [...newsTickerData];
+  
+  if (WORKER_URL) {
+    try {
+      const response = await fetch(`${WORKER_URL}/news`);
+      if (response.ok) {
+        const liveNews = await response.json();
+        if (Array.isArray(liveNews) && liveNews.length > 0) {
+          newsList = liveNews.map(item => `🔥 ${item}`);
+          console.log('[Live Data] Loaded news ticker from Cloudflare Worker');
+        }
+      }
+    } catch (err) {
+      console.warn('[Fallback] Failed to fetch news from Worker, using mock data:', err);
+    }
+  }
+  
   // Combine news with padding & duplicate it for infinite loop effect
-  const combinedNews = newsTickerData.join('    |    ');
-  // Duplicate news to ensure seamless wrap-around animation
+  const combinedNews = newsList.join('    |    ');
   marqueeContent.innerHTML = `<span class="px-4">${combinedNews}</span><span class="px-4">${combinedNews}</span>`;
 }
 
-// 4. Initialize/Update TradingView Widget
+// 5. Initialize/Update TradingView Widget
 function initTradingView() {
   const config = assetConfig[state.activeAsset];
   const containerId = 'tradingview_chart';
@@ -141,18 +165,43 @@ function initTradingView() {
   }, 100);
 }
 
-// 5. Render Sentiment Tab Data
-function renderSentiment() {
+// 6. Render Sentiment Tab Data (Fetches live or falls back)
+async function renderSentiment() {
   const config = assetConfig[state.activeAsset];
   const sentimentSection = document.getElementById('sentiment-data-container');
   if (!sentimentSection) return;
   
+  // 顯示加載動畫
+  sentimentSection.innerHTML = `
+    <div class="flex flex-col items-center justify-center py-16">
+      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-yellow-400"></div>
+      <p class="text-xs text-slate-400 mt-4">正在讀取最新籌碼數據...</p>
+    </div>
+  `;
+  
+  let sentimentData = { ...config.sentiment };
+  
+  if (WORKER_URL) {
+    try {
+      const response = await fetch(`${WORKER_URL}/sentiment?asset=${state.activeAsset}`);
+      if (response.ok) {
+        const liveSentiment = await response.json();
+        if (liveSentiment && liveSentiment.longRatio !== undefined) {
+          sentimentData = liveSentiment;
+          console.log(`[Live Data] Loaded ${state.activeAsset} sentiment from Worker`);
+        }
+      }
+    } catch (err) {
+      console.warn('[Fallback] Failed to fetch sentiment from Worker, using mock data:', err);
+    }
+  }
+  
   // Calculate percentage widths
-  const longPercent = config.sentiment.longRatio;
-  const shortPercent = config.sentiment.shortRatio;
+  const longPercent = sentimentData.longRatio;
+  const shortPercent = sentimentData.shortRatio;
   
   let detailsHtml = '';
-  config.sentiment.details.forEach(item => {
+  sentimentData.details.forEach(item => {
     let icon = '➡️';
     let colorClass = 'text-gray-400';
     if (item.trend === 'up') {
@@ -177,7 +226,7 @@ function renderSentiment() {
     <!-- Asset Indicator Title -->
     <div class="mb-4 text-center">
       <h3 class="text-lg font-semibold text-white">${config.name} 籌碼觀測</h3>
-      <p class="text-xs text-slate-400 mt-1">數據來源：${config.sentiment.source}</p>
+      <p class="text-xs text-slate-400 mt-1">數據來源：${sentimentData.source}</p>
     </div>
     
     <!-- Long/Short Gauge -->
@@ -214,13 +263,38 @@ function renderSentiment() {
   `;
 }
 
-// 6. Render Macro Tab Data
-function renderMacro() {
+// 7. Render Macro Tab Data (Fetches live or falls back)
+async function renderMacro() {
   const container = document.getElementById('macro-data-container');
   if (!container) return;
   
+  // 顯示加載動畫
+  container.innerHTML = `
+    <div class="flex flex-col items-center justify-center py-16">
+      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400"></div>
+      <p class="text-xs text-slate-400 mt-4">正在讀取當週財經日曆...</p>
+    </div>
+  `;
+  
+  let eventsList = [...macroCalendar];
+  
+  if (WORKER_URL) {
+    try {
+      const response = await fetch(`${WORKER_URL}/macro`);
+      if (response.ok) {
+        const liveEvents = await response.json();
+        if (Array.isArray(liveEvents) && liveEvents.length > 0) {
+          eventsList = liveEvents;
+          console.log('[Live Data] Loaded macroeconomic calendar from Worker');
+        }
+      }
+    } catch (err) {
+      console.warn('[Fallback] Failed to fetch macro calendar from Worker, using mock data:', err);
+    }
+  }
+  
   let calendarHtml = '';
-  macroCalendar.forEach(item => {
+  eventsList.forEach(item => {
     let impactBadge = '';
     if (item.impact === 'high') {
       impactBadge = '<span class="px-2 py-0.5 text-[10px] font-bold rounded badge-high">高重要度 (High)</span>';
@@ -276,7 +350,7 @@ function renderMacro() {
   `;
 }
 
-// 7. Setup Event Listeners (Assets & Navigation Tabs)
+// 8. Setup Event Listeners (Assets & Navigation Tabs)
 function setupEventListeners() {
   // Asset Selectors
   const assetButtons = document.querySelectorAll('.asset-btn');
@@ -316,7 +390,6 @@ function setupEventListeners() {
       
       // Update button visual states
       tabButtons.forEach(b => {
-        const textSpan = b.querySelector('span:last-child');
         b.classList.remove('text-blue-400');
         b.classList.add('text-slate-400');
       });
@@ -335,15 +408,19 @@ function setupEventListeners() {
         }
       });
       
-      // Performance optimization: resize TradingView widget if switching back to charts
+      // Reload subpages content dynamically upon tab activation
       if (selectedTab === 'charts' && state.tvWidget) {
         initTradingView();
+      } else if (selectedTab === 'sentiment') {
+        renderSentiment();
+      } else if (selectedTab === 'macro') {
+        renderMacro();
       }
     });
   });
 }
 
-// 8. Register Service Worker for PWA Add-To-Home-Screen Support
+// 9. Register Service Worker for PWA Add-To-Home-Screen Support
 function registerServiceWorker() {
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js')
