@@ -149,8 +149,8 @@ function initTradingView() {
         "save_image": false,
         "container_id": containerId,
         "studies": [
-          "RSI@tv-basicstudies",
-          "MASimple@tv-basicstudies"
+          "PUB;a6QbVTwh",
+          "PUB;NzxKHBd3"
         ],
         "disabled_features": [
           "header_symbol_search" // Disable manual search to maintain our clean UI flow
