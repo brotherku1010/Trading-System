@@ -2,10 +2,10 @@
 
 // 1. Cloudflare Workers Proxy URL Configuration
 // -------------------------------------------------------------
-// 當您部署好 Cloudflare Worker 後，請將下方引號內填入您的 Worker 網址，
-// 例如: 'https://paw-proxy.yourname.workers.dev'
-// 如果留空 '', 程式會自動安全地切換為離線模擬數據 (Mock Data)。
-const WORKER_URL = ''; 
+// 自動偵測目前的執行網域名稱，支援本機調試與線上部署。
+const WORKER_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+  ? 'https://tradingsystem.jppsku.workers.dev' 
+  : window.location.origin;
 // -------------------------------------------------------------
 
 // 2. Application State
