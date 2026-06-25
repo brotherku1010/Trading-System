@@ -37,6 +37,12 @@ export default {
   }
 };
 
+// Helper function to remove CDATA wrappers and trim strings
+const clean = (str) => {
+  if (!str) return '';
+  return str.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').trim();
+};
+
 // 1. Fetch & Parse Blocktempo RSS News
 async function handleNews(headers) {
   const response = await fetch('https://www.blocktempo.com/feed/', {
@@ -45,21 +51,18 @@ async function handleNews(headers) {
   const xmlText = await response.text();
   const items = [];
 
-  // Parse items via regex (lightweight, zero npm deps)
   const matches = xmlText.matchAll(/<item>([\s\S]*?)<\/item>/g);
   for (const match of matches) {
     const itemContent = match[1];
     const title = itemContent.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/)?.[1] || 
                   itemContent.match(/<title>([\s\S]*?)<\/title>/)?.[1] || '';
     
-    // Clean description and titles
-    let cleanTitle = title.replace(/<!\[CDATA\[(.*?)\]\]>/g, '$1').trim();
+    let cleanTitle = clean(title);
     if (cleanTitle) {
       items.push(cleanTitle);
     }
   }
 
-  // Fallback if RSS is empty
   const finalNews = items.slice(0, 10);
   if (finalNews.length === 0) {
     finalNews.push("即時快訊：美國 PCE 數據發佈前夕，市場情緒偏向保守");
@@ -68,9 +71,9 @@ async function handleNews(headers) {
   return new Response(JSON.stringify(finalNews), { headers });
 }
 
-// 2. Fetch & Parse ForexFactory XML Calendar
+// 2. Fetch & Parse ForexFactory XML Calendar (using CDN URL + CDATA cleaning)
 async function handleMacro(headers) {
-  const response = await fetch('https://www.forexfactory.com/ff_calendar_thisweek.xml', {
+  const response = await fetch('https://nfs.faireconomy.media/ff_calendar_thisweek.xml', {
     headers: { 'User-Agent': 'Mozilla/5.0' }
   });
   const xmlText = await response.text();
@@ -79,13 +82,13 @@ async function handleMacro(headers) {
   const matches = xmlText.matchAll(/<event>([\s\S]*?)<\/event>/g);
   for (const match of matches) {
     const item = match[1];
-    const title = item.match(/<title>([\s\S]*?)<\/title>/)?.[1] || '';
-    const country = item.match(/<country>([\s\S]*?)<\/country>/)?.[1] || '';
-    const date = item.match(/<date>([\s\S]*?)<\/date>/)?.[1] || '';
-    const time = item.match(/<time>([\s\S]*?)<\/time>/)?.[1] || '';
-    const impact = item.match(/<impact>([\s\S]*?)<\/impact>/)?.[1] || '';
-    const forecast = item.match(/<forecast>([\s\S]*?)<\/forecast>/)?.[1] || '';
-    const previous = item.match(/<previous>([\s\S]*?)<\/previous>/)?.[1] || '';
+    const title = clean(item.match(/<title>([\s\S]*?)<\/title>/)?.[1] || '');
+    const country = clean(item.match(/<country>([\s\S]*?)<\/country>/)?.[1] || '');
+    const date = clean(item.match(/<date>([\s\S]*?)<\/date>/)?.[1] || '');
+    const time = clean(item.match(/<time>([\s\S]*?)<\/time>/)?.[1] || '');
+    const impact = clean(item.match(/<impact>([\s\S]*?)<\/impact>/)?.[1] || '');
+    const forecast = clean(item.match(/<forecast>([\s\S]*?)<\/forecast>/)?.[1] || '');
+    const previous = clean(item.match(/<previous>([\s\S]*?)<\/previous>/)?.[1] || '');
 
     // Filter major USD high/medium impact events
     if (country === 'USD' && (impact.toLowerCase() === 'high' || impact.toLowerCase() === 'medium')) {
