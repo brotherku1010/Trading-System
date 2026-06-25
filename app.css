@@ -50,7 +50,7 @@ body {
 .marquee-content {
   display: flex;
   white-space: nowrap;
-  animation: marquee-anim 20s linear infinite;
+  animation: marquee-anim 45s linear infinite;
   width: max-content;
 }
 

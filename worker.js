@@ -116,8 +116,8 @@ async function handleSentiment(asset, headers) {
       shortRatio: 45,
       details: [
         { label: '大戶持倉比率', value: '57% 多 / 43% 空', trend: 'up' },
-        { label: '重要阻力區間', value: '2350 - 2365', trend: 'neutral' },
-        { label: '重要支撐區間', value: '2310 - 2320', trend: 'up' }
+        { label: '重要阻力區間', value: '4020 - 4050', trend: 'neutral' },
+        { label: '重要支撐區間', value: '3940 - 3970', trend: 'up' }
       ]
     };
   } else if (asset === 'BTCUSD') {

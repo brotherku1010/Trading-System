@@ -27,8 +27,8 @@ const assetConfig = {
       shortRatio: 46,
       details: [
         { label: '大戶持倉比率', value: '58% 多 / 42% 空', trend: 'up' },
-        { label: '壓力區間 (Resistance)', value: '2350 - 2365', trend: 'neutral' },
-        { label: '支撐區間 (Support)', value: '2310 - 2320', trend: 'up' }
+        { label: '壓力區間 (Resistance)', value: '4020 - 4050', trend: 'neutral' },
+        { label: '支撐區間 (Support)', value: '3940 - 3970', trend: 'up' }
       ]
     }
   },
@@ -148,6 +148,16 @@ function initTradingView() {
         "calendar": true,
         "save_image": false,
         "container_id": containerId,
+        
+        // =========================================================================
+        // [自訂指標/版面載入設定]
+        // 1. 若想直接載入您儲存的 TradingView 版面（包含自訂指標），請取消下方 "chart" 註解：
+        //    並填入您的版面 ID（例如您的分享網址為 tradingview.com/chart/u1yYn7sB/，則 ID 為 "u1yYn7sB"）
+        //    "chart": "您的版面ID", 
+        // 
+        // 2. 若想在預設空圖表直接加載特定指標，可以在下方 "studies" 陣列中新增：
+        //    例如: "RSI@tv-basicstudies", "BollingerBandsWidth@tv-basicstudies", 或您的 Pine Script 名稱
+        // =========================================================================
         "studies": [
           "RSI@tv-basicstudies",
           "MASimple@tv-basicstudies"
