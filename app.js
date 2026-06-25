@@ -148,9 +148,6 @@ function initTradingView() {
         "calendar": true,
         "save_image": false,
         "container_id": containerId,
-        
-        // 載入您的分享圖表版面（包含自訂的指標與線條畫記）
-        "chart": "WGy9kw3R", 
         "studies": [
           "RSI@tv-basicstudies",
           "MASimple@tv-basicstudies"
