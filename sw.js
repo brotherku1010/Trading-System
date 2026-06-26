@@ -1,4 +1,4 @@
-const CACHE_NAME = 'paw-trading-v5'; // Bumped cache version to v5 to force browser update
+const CACHE_NAME = 'paw-trading-v6'; // Bumped cache version to v6 to force browser update
 const ASSETS = [
   './',
   './index.html',

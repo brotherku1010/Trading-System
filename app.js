@@ -2,7 +2,6 @@
 
 // 1. Cloudflare Workers Proxy URL Configuration
 // -------------------------------------------------------------
-// 自動偵測目前的執行網域名稱，支援本機調試與線上部署。
 const WORKER_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
   ? 'https://tradingsystem.jppsku.workers.dev' 
   : window.location.origin;
@@ -11,9 +10,7 @@ const WORKER_URL = window.location.hostname === 'localhost' || window.location.h
 // 2. Application State
 const state = {
   activeAsset: 'XAUUSD', // 'XAUUSD', 'BTCUSD', 'ETHUSD'
-  activeTab: 'charts',   // 'charts', 'sentiment', 'macro'
-  tvWidget: null,
-  layoutId: localStorage.getItem('tradingview_layout_id') || 'WGy9kw3R'
+  activeTab: 'charts'   // 'charts', 'sentiment', 'macro'
 };
 
 // Asset Map config
@@ -85,33 +82,21 @@ const newsTickerData = [
 
 // 3. Initialize App
 window.addEventListener('DOMContentLoaded', () => {
-  updateLayoutDisplay();
   setupMarquee();
-  initTradingView();
+  fetchMarketData();
+  loadHeatmap();
   renderSentiment();
   renderMacro();
   setupEventListeners();
   registerServiceWorker();
+  
+  // Update market data every 10 seconds
+  setInterval(() => {
+    if (state.activeTab === 'charts') {
+      fetchMarketData();
+    }
+  }, 10000);
 });
-
-// Helper: Update Layout ID in UI
-function updateLayoutDisplay() {
-  const displayEl = document.getElementById('layout-display-id');
-  if (displayEl) {
-    displayEl.textContent = state.layoutId;
-  }
-}
-
-// Helper: Parse layout ID from URL or raw string
-function parseTradingViewLayoutId(input) {
-  if (!input) return 'WGy9kw3R';
-  input = input.trim();
-  const match = input.match(/\/chart\/([a-zA-Z0-9]+)/);
-  if (match && match[1]) {
-    return match[1];
-  }
-  return input;
-}
 
 // 4. Setup Marquee News Ticker (Fetches live or falls back)
 async function setupMarquee() {
@@ -135,66 +120,188 @@ async function setupMarquee() {
     }
   }
   
-  // Combine news with padding & duplicate it for infinite loop effect
   const combinedNews = newsList.join('    |    ');
   marqueeContent.innerHTML = `<span class="px-4">${combinedNews}</span><span class="px-4">${combinedNews}</span>`;
 }
 
-// 5. Initialize/Update TradingView Widget
-function initTradingView() {
-  const config = assetConfig[state.activeAsset];
-  const containerId = 'tradingview_chart';
+// 5. Fetch Price & Rumor Data (Market Intelligence Tab)
+async function fetchMarketData() {
+  const priceDisplay = document.getElementById('spot-price-display');
+  const badgeEl = document.getElementById('price-change-badge');
+  const assetNameEl = document.getElementById('active-asset-name');
+  const highEl = document.getElementById('price-high');
+  const lowEl = document.getElementById('price-low');
   
-  // Re-create the TV DOM container to fully destroy previous instance
-  const wrapper = document.getElementById('tradingview_chart_wrapper');
-  if (!wrapper) return;
+  const rsiEl = document.getElementById('status-rsi');
+  const macdEl = document.getElementById('status-macd');
+  const trendEl = document.getElementById('status-trend');
   
-  wrapper.style.opacity = '0';
+  const fngValueEl = document.getElementById('fng-value');
+  const fngClassEl = document.getElementById('fng-class');
+  const fngBarFill = document.getElementById('fng-bar-fill');
   
-  setTimeout(() => {
-    wrapper.innerHTML = `<div id="${containerId}" class="w-full h-full"></div>`;
-    
-    if (window.TradingView) {
-      state.tvWidget = new TradingView.widget({
-        "autosize": true,
-        "symbol": config.symbol,
-        "interval": "60",
-        "timezone": "Asia/Taipei",
-        "theme": "dark",
-        "style": "1",
-        "locale": "zh_TW",
-        "enable_publishing": false,
-        "hide_side_toolbar": false, // show drawing tools
-        "allow_symbol_change": false, // Lock it to our selector
-        "calendar": true,
-        "save_image": false,
-        "container_id": containerId,
-        "chart": state.layoutId, // Include chart layout ID
-        "studies": [
-          "RSI@tv-basicstudies",
-          "MACD@tv-basicstudies",
-          "Volume@tv-basicstudies"
-        ],
-        "disabled_features": [
-          "header_symbol_search" // Disable manual search to maintain our clean UI flow
-        ]
-      });
+  const rumorsContainer = document.getElementById('rumors-container');
+  
+  if (!priceDisplay) return;
+  
+  try {
+    const response = await fetch(`${WORKER_URL}/market-data?asset=${state.activeAsset}`);
+    if (response.ok) {
+      const data = await response.json();
+      
+      // Update Asset Display Name
+      if (assetNameEl) {
+        assetNameEl.textContent = state.activeAsset === 'XAUUSD' ? '🥇 黃金 Spot' : (state.activeAsset === 'BTCUSD' ? '🪙 BTC' : '💎 ETH');
+      }
+      
+      // Format & Render Price Data
+      const formattedPrice = state.activeAsset === 'XAUUSD' 
+        ? `$${data.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        : `$${data.price.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 2 })}`;
+      priceDisplay.textContent = formattedPrice;
+      
+      const formattedHigh = state.activeAsset === 'XAUUSD' 
+        ? `$${data.high.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        : `$${data.high.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 2 })}`;
+      const formattedLow = state.activeAsset === 'XAUUSD' 
+        ? `$${data.low.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        : `$${data.low.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 2 })}`;
+      
+      if (highEl) highEl.textContent = formattedHigh;
+      if (lowEl) lowEl.textContent = formattedLow;
+      
+      // Render Change Badges
+      const isPositive = data.changePercent >= 0;
+      if (badgeEl) {
+        badgeEl.textContent = `${isPositive ? '+' : ''}${data.changePercent.toFixed(2)}%`;
+        badgeEl.className = `px-2 py-0.5 rounded font-bold text-[10px] ${
+          isPositive 
+            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+            : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+        }`;
+      }
+      
+      // Render Status Indicators
+      if (rsiEl) rsiEl.textContent = data.rsi;
+      if (macdEl) macdEl.textContent = data.macd;
+      if (trendEl) {
+        trendEl.textContent = data.trend;
+        if (data.trend.includes("多頭")) {
+          trendEl.className = "font-bold text-emerald-400";
+        } else if (data.trend.includes("空頭")) {
+          trendEl.className = "font-bold text-rose-400";
+        } else {
+          trendEl.className = "font-bold text-yellow-400";
+        }
+      }
+      
+      // Render Fear & Greed Index
+      if (fngValueEl && fngClassEl && fngBarFill) {
+        fngValueEl.textContent = data.fearGreed.value;
+        fngClassEl.textContent = getFearGreedChinese(data.fearGreed.classification);
+        fngBarFill.style.width = `${data.fearGreed.value}%`;
+        
+        const fngClass = data.fearGreed.classification.toLowerCase();
+        if (fngClass.includes('fear')) {
+          fngClassEl.className = "text-xs font-bold text-rose-400";
+        } else if (fngClass.includes('greed')) {
+          fngClassEl.className = "text-xs font-bold text-emerald-400";
+        } else {
+          fngClassEl.className = "text-xs font-bold text-yellow-400";
+        }
+      }
+      
+      // Render Dynamic Whispers & Rumors
+      if (rumorsContainer) {
+        let rumorsHtml = '';
+        data.rumors.forEach(rumor => {
+          rumorsHtml += `
+            <div class="p-3 bg-slate-800/40 rounded-xl border border-slate-700/50 space-y-1.5 hover:bg-slate-800/60 transition-colors">
+              <div class="flex justify-between items-center text-[10px]">
+                <span class="px-2 py-0.5 border rounded font-bold ${rumor.badgeColor}">${rumor.type}</span>
+                <span class="text-slate-500 font-mono">${rumor.time}</span>
+              </div>
+              <p class="text-slate-300 text-xs leading-relaxed">${rumor.content}</p>
+            </div>
+          `;
+        });
+        rumorsContainer.innerHTML = rumorsHtml;
+      }
     }
-    
-    // Fade in chart smoothly once loaded
-    setTimeout(() => {
-      wrapper.style.opacity = '1';
-    }, 150);
-  }, 100);
+  } catch (err) {
+    console.error('Failed to load market intelligence data:', err);
+  }
 }
 
-// 6. Render Sentiment Tab Data (Fetches live or falls back)
+// Convert Fear Greed label to Traditional Chinese
+function getFearGreedChinese(englishClass) {
+  const mapping = {
+    'Extreme Fear': '極度恐懼 (Extreme Fear)',
+    'Fear': '恐懼 (Fear)',
+    'Neutral': '中立 (Neutral)',
+    'Greed': '貪婪 (Greed)',
+    'Extreme Greed': '極度貪婪 (Extreme Greed)'
+  };
+  return mapping[englishClass] || englishClass;
+}
+
+// 6. Dynamically Load Heatmap scripts (Forex/Crypto)
+function loadHeatmap() {
+  const container = document.getElementById('heatmap-wrapper');
+  if (!container) return;
+  
+  // Clear previous instance
+  container.innerHTML = '';
+  
+  // Create wrapper structures
+  const widgetContainer = document.createElement('div');
+  widgetContainer.className = 'tradingview-widget-container h-full w-full';
+  
+  const widgetSub = document.createElement('div');
+  widgetSub.className = 'tradingview-widget-container__widget h-full w-full';
+  widgetContainer.appendChild(widgetSub);
+  
+  const script = document.createElement('script');
+  script.type = 'text/javascript';
+  script.async = true;
+  
+  if (state.activeAsset === 'XAUUSD') {
+    // Load Forex Heatmap for Gold Spot Context
+    script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-forex-heat-map.js';
+    script.innerHTML = JSON.stringify({
+      "width": "100%",
+      "height": "100%",
+      "currencies": ["EUR", "USD", "JPY", "GBP", "CHF", "AUD", "CAD", "NZD"],
+      "isTransparent": true,
+      "colorTheme": "dark",
+      "locale": "zh_TW"
+    });
+  } else {
+    // Load Crypto Coins Heatmap for BTC / ETH
+    script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-crypto-coins-heatmap.js';
+    script.innerHTML = JSON.stringify({
+      "dataSource": "Crypto",
+      "blockSize": "market_cap_calc",
+      "blockColor": "24h_close_change|5",
+      "locale": "zh_TW",
+      "colorTheme": "dark",
+      "isZoomEnabled": true,
+      "hasSymbolTooltip": true,
+      "width": "100%",
+      "height": "100%"
+    });
+  }
+  
+  widgetContainer.appendChild(script);
+  container.appendChild(widgetContainer);
+}
+
+// 7. Render Sentiment Tab Data (Fetches live or falls back)
 async function renderSentiment() {
   const config = assetConfig[state.activeAsset];
   const sentimentSection = document.getElementById('sentiment-data-container');
   if (!sentimentSection) return;
   
-  // 顯示加載動畫
   sentimentSection.innerHTML = `
     <div class="flex flex-col items-center justify-center py-16">
       <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-yellow-400"></div>
@@ -219,7 +326,6 @@ async function renderSentiment() {
     }
   }
   
-  // Calculate percentage widths
   const longPercent = sentimentData.longRatio;
   const shortPercent = sentimentData.shortRatio;
   
@@ -246,20 +352,17 @@ async function renderSentiment() {
   });
   
   sentimentSection.innerHTML = `
-    <!-- Asset Indicator Title -->
     <div class="mb-4 text-center">
       <h3 class="text-lg font-semibold text-white">${config.name} 籌碼觀測</h3>
       <p class="text-xs text-slate-400 mt-1">數據來源：${sentimentData.source}</p>
     </div>
     
-    <!-- Long/Short Gauge -->
     <div class="bg-slate-800/80 p-5 rounded-2xl border border-slate-700/80 mb-4 shadow-xl">
       <div class="flex justify-between text-sm mb-2 font-bold">
         <span class="text-neon-green">LONG 多頭 (${longPercent}%)</span>
         <span class="text-neon-red">SHORT 空頭 (${shortPercent}%)</span>
       </div>
       
-      <!-- Progress Bar -->
       <div class="ratio-bar w-full">
         <div class="ratio-fill" style="width: ${longPercent}%"></div>
       </div>
@@ -271,12 +374,10 @@ async function renderSentiment() {
       </div>
     </div>
     
-    <!-- Detail Cards -->
     <div class="space-y-3">
       ${detailsHtml}
     </div>
     
-    <!-- Dynamic Iframe Placeholder (Fallback for Charts) -->
     <div class="mt-6 p-4 bg-slate-900/60 rounded-2xl border border-dashed border-slate-700 text-center">
       <p class="text-xs text-slate-400 mb-2">🔥 籌碼熱力圖 (Coinglass 嵌入預留區)</p>
       <div class="aspect-video w-full bg-slate-800 rounded-lg flex items-center justify-center text-xs text-slate-500">
@@ -286,12 +387,11 @@ async function renderSentiment() {
   `;
 }
 
-// 7. Render Macro Tab Data (Fetches live or falls back)
+// 8. Render Macro Tab Data (Fetches live or falls back)
 async function renderMacro() {
   const container = document.getElementById('macro-data-container');
   if (!container) return;
   
-  // 顯示加載動畫
   container.innerHTML = `
     <div class="flex flex-col items-center justify-center py-16">
       <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400"></div>
@@ -354,7 +454,6 @@ async function renderMacro() {
       <p class="text-xs text-slate-400 mt-1">數據來源：ForexFactory (重大紅標數據過濾)</p>
     </div>
     
-    <!-- Dollar Index Quick Info -->
     <div class="mb-4 grid grid-cols-2 gap-3">
       <div class="p-3 bg-slate-800/40 rounded-xl border border-slate-700/50 flex justify-between items-center">
         <span class="text-xs text-slate-400">💵 美元指數 (DXY)</span>
@@ -366,14 +465,13 @@ async function renderMacro() {
       </div>
     </div>
 
-    <!-- Calendar List -->
     <div class="space-y-3">
       ${calendarHtml}
     </div>
   `;
 }
 
-// 8. Setup Event Listeners (Assets & Navigation Tabs)
+// 9. Setup Event Listeners (Assets & Navigation Tabs)
 function setupEventListeners() {
   // Asset Selectors
   const assetButtons = document.querySelectorAll('.asset-btn');
@@ -382,10 +480,8 @@ function setupEventListeners() {
       const selected = e.currentTarget.dataset.asset;
       if (selected === state.activeAsset) return;
       
-      // Update state
       state.activeAsset = selected;
       
-      // Update asset selector buttons visual styles
       assetButtons.forEach(b => {
         b.classList.remove('text-yellow-400', 'font-bold', 'border-b-2', 'border-yellow-400');
         b.classList.add('text-slate-400');
@@ -393,9 +489,13 @@ function setupEventListeners() {
       e.currentTarget.classList.remove('text-slate-400');
       e.currentTarget.classList.add('text-yellow-400', 'font-bold', 'border-b-2', 'border-yellow-400');
       
-      // Trigger updates
-      initTradingView();
-      renderSentiment();
+      // Update Tab Views based on active tab
+      if (state.activeTab === 'charts') {
+        fetchMarketData();
+        loadHeatmap();
+      } else if (state.activeTab === 'sentiment') {
+        renderSentiment();
+      }
     });
   });
 
@@ -408,10 +508,8 @@ function setupEventListeners() {
       const selectedTab = e.currentTarget.dataset.tab;
       if (selectedTab === state.activeTab) return;
       
-      // Update state
       state.activeTab = selectedTab;
       
-      // Update button visual states
       tabButtons.forEach(b => {
         b.classList.remove('text-blue-400');
         b.classList.add('text-slate-400');
@@ -419,7 +517,6 @@ function setupEventListeners() {
       e.currentTarget.classList.remove('text-slate-400');
       e.currentTarget.classList.add('text-blue-400');
       
-      // Toggle panes
       tabPanes.forEach(pane => {
         pane.classList.remove('active', 'block');
         pane.classList.add('hidden');
@@ -431,9 +528,9 @@ function setupEventListeners() {
         }
       });
       
-      // Reload subpages content dynamically upon tab activation
-      if (selectedTab === 'charts' && state.tvWidget) {
-        initTradingView();
+      if (selectedTab === 'charts') {
+        fetchMarketData();
+        loadHeatmap();
       } else if (selectedTab === 'sentiment') {
         renderSentiment();
       } else if (selectedTab === 'macro') {
@@ -441,154 +538,9 @@ function setupEventListeners() {
       }
     });
   });
-
-  // TradingView Sync & Layout Controls
-  const btnEditLayout = document.getElementById('btn-edit-layout');
-  if (btnEditLayout) {
-    btnEditLayout.addEventListener('click', () => {
-      const currentVal = state.layoutId;
-      const input = prompt(
-        '請輸入您的 TradingView 分享網址或版面 ID：\n例如: https://cn.tradingview.com/chart/WGy9kw3R/\n或直接輸入 ID: WGy9kw3R',
-        currentVal
-      );
-      if (input !== null) {
-        const newId = parseTradingViewLayoutId(input);
-        if (newId) {
-          state.layoutId = newId;
-          localStorage.setItem('tradingview_layout_id', newId);
-          updateLayoutDisplay();
-          initTradingView();
-        }
-      }
-    });
-  }
-
-  const btnOpenOfficial = document.getElementById('btn-open-official');
-  if (btnOpenOfficial) {
-    btnOpenOfficial.addEventListener('click', () => {
-      const url = `https://cn.tradingview.com/chart/${state.layoutId}/`;
-      const isMobile = /Android|iPhone|iPad|iPod|Windows Phone/i.test(navigator.userAgent);
-      
-      if (isMobile) {
-        // Try to copy to clipboard
-        copyTextToClipboard(url);
-        
-        // Show copy modal
-        const copyModal = document.getElementById('copy-modal');
-        const copyModalUrl = document.getElementById('copy-modal-url');
-        if (copyModal) {
-          if (copyModalUrl) copyModalUrl.textContent = url;
-          copyModal.classList.remove('hidden');
-          setTimeout(() => {
-            copyModal.classList.remove('opacity-0');
-            copyModal.classList.add('opacity-100');
-          }, 10);
-        }
-      } else {
-        window.open(url, '_blank');
-      }
-    });
-  }
-
-  // Help Modal Controls
-  const helpModal = document.getElementById('help-modal');
-  const btnHelpSync = document.getElementById('btn-help-sync');
-  const btnCloseHelp = document.getElementById('btn-close-help');
-  const btnCloseHelpConfirm = document.getElementById('btn-close-help-confirm');
-
-  if (helpModal && btnHelpSync) {
-    // Open Modal
-    btnHelpSync.addEventListener('click', () => {
-      helpModal.classList.remove('hidden');
-      setTimeout(() => {
-        helpModal.classList.remove('opacity-0');
-        helpModal.classList.add('opacity-100');
-      }, 10);
-    });
-
-    const closeModal = () => {
-      helpModal.classList.remove('opacity-100');
-      helpModal.classList.add('opacity-0');
-      setTimeout(() => {
-        helpModal.classList.add('hidden');
-      }, 200);
-    };
-
-    // Close Modal
-    if (btnCloseHelp) btnCloseHelp.addEventListener('click', closeModal);
-    if (btnCloseHelpConfirm) btnCloseHelpConfirm.addEventListener('click', closeModal);
-    
-    // Close by clicking overlay
-    helpModal.addEventListener('click', (e) => {
-      if (e.target === helpModal) closeModal();
-    });
-  }
-
-  // Copy Modal Controls
-  const copyModal = document.getElementById('copy-modal');
-  const btnCloseCopy = document.getElementById('btn-close-copy');
-  const btnCloseCopyConfirm = document.getElementById('btn-close-copy-confirm');
-  const btnCopyModalOpenAnyway = document.getElementById('btn-copy-modal-open-anyway');
-
-  if (copyModal) {
-    const closeCopyModal = () => {
-      copyModal.classList.remove('opacity-100');
-      copyModal.classList.add('opacity-0');
-      setTimeout(() => {
-        copyModal.classList.add('hidden');
-      }, 200);
-    };
-
-    if (btnCloseCopy) btnCloseCopy.addEventListener('click', closeCopyModal);
-    if (btnCloseCopyConfirm) btnCloseCopyConfirm.addEventListener('click', closeCopyModal);
-    if (btnCopyModalOpenAnyway) {
-      btnCopyModalOpenAnyway.addEventListener('click', () => {
-        const url = `https://cn.tradingview.com/chart/${state.layoutId}/`;
-        window.open(url, '_blank');
-        closeCopyModal();
-      });
-    }
-
-    copyModal.addEventListener('click', (e) => {
-      if (e.target === copyModal) closeCopyModal();
-    });
-  }
 }
 
-// Helper: Copy text to clipboard (works on mobile webviews)
-function copyTextToClipboard(text) {
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(() => {
-      console.log('[Clipboard] Copied successfully');
-    }).catch(err => {
-      console.error('[Clipboard] Failed: ', err);
-      fallbackCopyTextToClipboard(text);
-    });
-  } else {
-    fallbackCopyTextToClipboard(text);
-  }
-}
-
-// Fallback: Copy text using dynamic textarea
-function fallbackCopyTextToClipboard(text) {
-  const textArea = document.createElement("textarea");
-  textArea.value = text;
-  textArea.style.top = "0";
-  textArea.style.left = "0";
-  textArea.style.position = "fixed";
-  document.body.appendChild(textArea);
-  textArea.focus();
-  textArea.select();
-  try {
-    document.execCommand('copy');
-    console.log('[Clipboard Fallback] Copied successfully');
-  } catch (err) {
-    console.error('[Clipboard Fallback] Failed: ', err);
-  }
-  document.body.removeChild(textArea);
-}
-
-// 9. Register Service Worker for PWA Add-To-Home-Screen Support
+// 10. Register Service Worker for PWA
 function registerServiceWorker() {
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js')

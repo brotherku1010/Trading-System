@@ -48,31 +48,91 @@
     <!-- 3. Main Views Container (Holds the 3 Tabs) -->
     <main class="flex-1 w-full relative overflow-hidden bg-slate-950">
       
-      <!-- Tab 1: Charts (TradingView) -->
-      <section id="tab-charts" class="tab-pane active w-full h-full flex flex-col relative">
-        <!-- TradingView Sync Control Bar -->
-        <div class="h-10 min-h-[2.5rem] bg-slate-900/90 border-b border-slate-800/80 flex justify-between items-center px-3 text-xs backdrop-blur-md select-none">
-          <div class="flex items-center gap-1.5">
-            <span class="text-slate-400">當前版面:</span>
-            <button id="btn-edit-layout" class="text-blue-400 hover:text-blue-300 font-bold flex items-center gap-1 focus:outline-none transition-colors">
-              <span id="layout-display-id">WGy9kw3R</span>
-              <span class="text-[10px]">📝</span>
-            </button>
-            <button id="btn-help-sync" class="text-slate-400 hover:text-slate-200 ml-1 flex items-center justify-center w-5 h-5 bg-slate-800 rounded-full font-bold focus:outline-none transition-colors" title="同步說明">
-              <span>?</span>
-            </button>
-          </div>
-          <button id="btn-open-official" class="bg-blue-600 hover:bg-blue-500 text-white font-bold px-2.5 py-1 rounded flex items-center gap-1 shadow-md transition-all active:scale-95">
-            <span>🔑</span> <span>開啟官方完整版 (可登入同步)</span>
-          </button>
-        </div>
+      <!-- Tab 1: Market Intelligence (行情 & 情報) -->
+      <section id="tab-charts" class="tab-pane active w-full h-full overflow-y-auto no-scrollbar p-4 pb-20 flex flex-col space-y-4">
         
-        <!-- Chart Container -->
-        <div class="flex-1 w-full relative">
-          <div id="tradingview_chart_wrapper" class="w-full h-full opacity-0">
-            <div id="tradingview_chart" class="w-full h-full"></div>
+        <!-- Asset Spot Price & Market Status Grid -->
+        <div class="grid grid-cols-2 gap-3">
+          <!-- Price Card -->
+          <div class="bg-slate-900/80 p-4 rounded-2xl border border-slate-800/80 shadow-md space-y-1.5 flex flex-col justify-center">
+            <div class="flex justify-between items-center text-xs text-slate-400">
+              <span id="active-asset-name">🥇 黃金 Spot</span>
+              <span id="price-change-badge" class="px-2 py-0.5 rounded font-bold text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">+0.00%</span>
+            </div>
+            <div class="text-2xl font-bold font-mono tracking-tight text-white py-1" id="spot-price-display">$0.00</div>
+            <div class="flex justify-between text-[10px] text-slate-500">
+              <span>H: <span id="price-high" class="font-mono text-slate-400">$0.00</span></span>
+              <span>L: <span id="price-low" class="font-mono text-slate-400">$0.00</span></span>
+            </div>
+          </div>
+
+          <!-- Market Intelligence Status Card -->
+          <div class="bg-slate-900/80 p-4 rounded-2xl border border-slate-800/80 shadow-md space-y-1.5 flex flex-col justify-center text-xs text-slate-300">
+            <div class="flex justify-between items-center text-slate-400 text-[10px] mb-0.5">
+              <span>市場狀態判斷</span>
+              <span class="text-neon-blue font-bold">LIVE</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-slate-400">RSI (14):</span>
+              <span class="font-mono font-bold" id="status-rsi">--</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-slate-400">MACD (12,26):</span>
+              <span class="font-bold" id="status-macd">--</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-slate-400">當前趨勢:</span>
+              <span class="font-bold text-yellow-400" id="status-trend">--</span>
+            </div>
           </div>
         </div>
+
+        <!-- Fear & Greed Index Card -->
+        <div class="bg-slate-900/80 p-4 rounded-2xl border border-slate-800/80 shadow-md flex justify-between items-center">
+          <div class="space-y-1">
+            <h4 class="text-xs text-slate-400">恐懼與貪婪指數 (Fear & Greed)</h4>
+            <div class="flex items-baseline gap-2">
+              <span class="text-xl font-bold font-mono text-white" id="fng-value">--</span>
+              <span class="text-xs font-bold text-emerald-400" id="fng-class">--</span>
+            </div>
+          </div>
+          <!-- Gauge Mini Bar -->
+          <div class="w-32 bg-slate-800 h-2.5 rounded-full overflow-hidden border border-slate-700">
+            <div id="fng-bar-fill" class="h-full bg-gradient-to-r from-red-500 via-yellow-400 to-emerald-400 transition-all duration-500" style="width: 0%"></div>
+          </div>
+        </div>
+
+        <!-- Rumors & Whispers Section -->
+        <div class="bg-slate-900/80 p-4 rounded-2xl border border-slate-800/80 shadow-md space-y-3">
+          <div class="flex justify-between items-center border-b border-slate-800 pb-2">
+            <h3 class="text-xs font-bold text-red-400 flex items-center gap-1.5">
+              <span>⚠️</span> 第一手即時情報 (包含未查證傳言)
+            </h3>
+            <span class="animate-pulse flex h-2 w-2 relative">
+              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+              <span class="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+            </span>
+          </div>
+          
+          <!-- Rumors Container -->
+          <div class="space-y-3" id="rumors-container">
+            <!-- Dynamic elements loaded via JS -->
+          </div>
+        </div>
+
+        <!-- Heatmap Section -->
+        <div class="bg-slate-900/80 p-4 rounded-2xl border border-slate-800/80 shadow-md flex flex-col flex-1 min-h-[300px]">
+          <div class="flex justify-between items-center border-b border-slate-800 pb-2 mb-3">
+            <h3 class="text-xs font-bold text-white flex items-center gap-1.5">
+              <span>🔥</span> 即時板塊熱力圖 (Heatmap)
+            </h3>
+            <span class="text-[10px] text-slate-500">TradingView 提供</span>
+          </div>
+          <div class="flex-1 w-full rounded-xl overflow-hidden relative" id="heatmap-wrapper">
+            <!-- Dynamic heatmap loaded via JS -->
+          </div>
+        </div>
+
       </section>
       
       <!-- Tab 2: Sentiment (籌碼) - Scrollable list -->
@@ -95,7 +155,7 @@
     <nav class="h-16 bg-slate-900/95 border-t border-slate-800/90 flex justify-around items-center px-4 pb-safe shadow-2xl z-25 backdrop-blur-xl">
       <button data-tab="charts" class="tab-btn text-blue-400 flex flex-col items-center justify-center w-20 py-2 focus:outline-none active:scale-95 transition-transform">
         <span class="text-xl mb-0.5">📊</span>
-        <span class="text-[10px] font-semibold tracking-wider">圖表</span>
+        <span class="text-[10px] font-semibold tracking-wider">行情</span>
       </button>
       
       <button data-tab="sentiment" class="tab-btn text-slate-400 flex flex-col items-center justify-center w-20 py-2 focus:outline-none active:scale-95 transition-transform">
@@ -109,78 +169,6 @@
       </button>
     </nav>
     
-  </div>
-
-  <!-- TradingView Sync Help Modal -->
-  <div id="help-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden opacity-0 transition-all duration-200">
-    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-sm w-full p-5 shadow-2xl space-y-4">
-      <div class="flex justify-between items-center border-b border-slate-800 pb-2">
-        <h3 class="text-sm font-bold text-white flex items-center gap-1.5">
-          <span>❓</span> TradingView 同步與登入說明
-        </h3>
-        <button id="btn-close-help" class="text-slate-400 hover:text-white text-lg font-bold focus:outline-none">&times;</button>
-      </div>
-      
-      <div class="text-xs text-slate-300 space-y-3 leading-relaxed">
-        <p class="font-semibold text-yellow-500">📌 為什麼 App 內嵌圖表顯示「原版介面」且沒有同步您的指標？</p>
-        <ol class="list-decimal pl-4 space-y-1.5">
-          <li><strong>瀏覽器安全性限制：</strong>現代瀏覽器會完全阻擋第三方網域（我們的 App）讀取官網的登入 Cookie。因此內嵌圖表永遠是「未登入（訪客）」狀態。</li>
-          <li><strong>私密指標無法被搜尋：</strong>因為您的自訂指標目前是「私密出版」，在未登入狀態下，內嵌圖表無法取得權限載入它們。</li>
-        </ol>
-        
-        <p class="font-semibold text-blue-400">💡 解決方案與使用方法：</p>
-        <ul class="list-disc pl-4 space-y-2">
-          <li>
-            <strong>方法一（推薦，使用官方完整版）：</strong><br>
-            點擊右上角的 <span class="text-blue-400 font-semibold">🔑 開啟官方完整版</span> 按鈕。在新分頁直接登入您的帳號，瀏覽器會記住 Cookie。在此分頁中即可看到完整的自訂版面與私密指標。
-          </li>
-          <li>
-            <strong>方法二（直接在 App 內看指標）：</strong><br>
-            您需要將指標在 TradingView 上發布為<strong>「公開出版物 (Public Script)」</strong>。公開後，您就可以在 App 內點擊圖表上方的 <strong>「指標 (fx)」</strong> 按鈕，搜尋指標名稱並手動新增，即可直接在 App 內看見。
-          </li>
-        </ul>
-      </div>
-      
-      <div class="pt-2">
-        <button id="btn-close-help-confirm" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 rounded-xl text-xs transition-colors focus:outline-none shadow-md">
-          我知道了
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Mobile Copy URL & Redirect Modal -->
-  <div id="copy-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden opacity-0 transition-all duration-200">
-    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-sm w-full p-5 shadow-2xl space-y-4">
-      <div class="flex justify-between items-center border-b border-slate-800 pb-2">
-        <h3 class="text-sm font-bold text-white flex items-center gap-1.5">
-          <span>📋</span> 已複製圖表連結！
-        </h3>
-        <button id="btn-close-copy" class="text-slate-400 hover:text-white text-lg font-bold focus:outline-none">&times;</button>
-      </div>
-      
-      <div class="text-xs text-slate-300 space-y-3 leading-relaxed">
-        <p class="font-semibold text-yellow-500">📱 如何避免跳轉至 TradingView App 並在網頁登入？</p>
-        <p>因為您的手機裝有 TradingView App，直接點擊會自動開啟 App，導致瀏覽器網頁版無法載入或登入。</p>
-        <p class="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800 break-all font-mono text-[10px] text-blue-400 select-all" id="copy-modal-url">
-          https://cn.tradingview.com/chart/WGy9kw3R/
-        </p>
-        <ol class="list-decimal pl-4 space-y-1.5">
-          <li>我們已為您複製上述圖表連結。</li>
-          <li>請打開手機的 <strong>Safari</strong> 或 <strong>Chrome</strong> 瀏覽器。</li>
-          <li>在瀏覽器的<strong>網址列長按並選擇「貼上並前往」</strong>，即可順利在網頁登入您的帳號，瀏覽器會為您記住登入狀態與私密指標！</li>
-        </ol>
-      </div>
-      
-      <div class="flex gap-2 pt-2">
-        <button id="btn-copy-modal-open-anyway" class="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 rounded-xl text-xs transition-colors focus:outline-none shadow-md">
-          直接開啟網頁試試
-        </button>
-        <button id="btn-close-copy-confirm" class="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-bold py-2 rounded-xl text-xs transition-colors focus:outline-none">
-          關閉
-        </button>
-      </div>
-    </div>
   </div>
 
   <!-- Main JavaScript File -->
