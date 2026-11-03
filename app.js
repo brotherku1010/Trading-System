@@ -1,10 +1,10 @@
-import { createIcons, RefreshCw, GitCompareArrows, ChartNoAxesCombined, CalendarDays, Database, RotateCcw, BookmarkPlus, Download, Info, ArrowUpRight, Sparkles, ExternalLink, CircleAlert, Clock3, Trash2, Upload, FileDown, DatabaseBackup, ShieldCheck, TrendingDown, TrendingUp, Minus, CircleHelp, X, List, Save, PlugZap, LockKeyhole, Copy } from 'lucide';
+import { createIcons, RefreshCw, GitCompareArrows, ChartNoAxesCombined, CalendarDays, Database, RotateCcw, BookmarkPlus, Download, Info, ArrowUpRight, Sparkles, ExternalLink, CircleAlert, Clock3, Trash2, Upload, FileDown, DatabaseBackup, ShieldCheck, TrendingDown, TrendingUp, Minus, CircleHelp, X, List, Save, PlugZap, LockKeyhole, Copy, KeyRound } from 'lucide';
 import { FACTORS, ASSETS, REGIMES, MACRO } from './lib/catalog.js';
 import { scenarioScore, correlation, conditionalStudy, technicalSummary, projectionRange, parseHistoryCsv, macroSurprise, marketSessions } from './lib/analysis.js';
 
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
-const icons = () => createIcons({ icons: { RefreshCw, GitCompareArrows, ChartNoAxesCombined, CalendarDays, Database, RotateCcw, BookmarkPlus, Download, Info, ArrowUpRight, Sparkles, ExternalLink, CircleAlert, Clock3, Trash2, Upload, FileDown, DatabaseBackup, ShieldCheck, TrendingDown, TrendingUp, Minus, CircleHelp, X, List, Save, PlugZap, LockKeyhole, Copy } });
+const icons = () => createIcons({ icons: { RefreshCw, GitCompareArrows, ChartNoAxesCombined, CalendarDays, Database, RotateCcw, BookmarkPlus, Download, Info, ArrowUpRight, Sparkles, ExternalLink, CircleAlert, Clock3, Trash2, Upload, FileDown, DatabaseBackup, ShieldCheck, TrendingDown, TrendingUp, Minus, CircleHelp, X, List, Save, PlugZap, LockKeyhole, Copy, KeyRound } });
 const fmt = (value, digits = 2) => Number.isFinite(value) ? value.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits }) : '—';
 const signed = (value, digits = 2) => Number.isFinite(value) ? `${value > 0 ? '+' : ''}${fmt(value, digits)}` : '—';
 const tone = value => value > 0 ? 'positive' : value < 0 ? 'negative' : 'neutral';
@@ -397,7 +397,11 @@ function setup() {
     $('gemini-settings-result').textContent = `連線成功 · ${data.model} · ${timestamp(data.testedAt)}`;
   }));
   $('gemini-delete').addEventListener('click', () => {
-    if (!confirm('刪除此系統保存在後端的 Gemini Key？Google 的原始 Key 不會被撤銷。')) return;
+    $('gemini-delete-dialog').returnValue = '';
+    $('gemini-delete-dialog').showModal();
+  });
+  $('gemini-delete-dialog').addEventListener('close', () => {
+    if ($('gemini-delete-dialog').returnValue !== 'delete') return;
     keyAction($('gemini-delete'), async () => {
       await api('/api/settings/gemini', { method: 'DELETE' });
       $('gemini-api-key').value = ''; $('gemini-model').value = '';
@@ -405,6 +409,7 @@ function setup() {
       $('gemini-settings-result').textContent = '本系統保存的 Key 已刪除，後續分析不再使用它。已送出的請求不受影響。';
     });
   });
+  $('manage-gemini').addEventListener('click', () => { $('gemini-settings').scrollIntoView({ block: 'center' }); $('gemini-api-key').focus({ preventScroll: true }); });
   window.addEventListener('hashchange', setTab);
   window.addEventListener('resize', () => drawContributions(scenarioScore(state.directions, state.regime, state.strength)));
   document.addEventListener('visibilitychange', () => { renderQuotes(); if (!document.hidden) refreshSnapshot(); });

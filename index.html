@@ -80,7 +80,7 @@
       <div class="research-note"><i data-lucide="clock-3"></i><span>盤別為東京 09–18、倫敦 08–17、紐約 08–17 的近似交易時段，可重疊並依夏令時間換算。影響期間為研究參考，不是回測結論。</span></div>
     </section>
     <section id="view-settings" class="view" hidden>
-      <div class="page-heading"><div><div class="eyebrow">DATA QUALITY</div><h1>資料與連線</h1></div><button id="clear-history" class="secondary"><i data-lucide="trash-2"></i>清除歷史資料</button></div>
+      <div class="page-heading"><div><div class="eyebrow">DATA QUALITY</div><h1>資料與連線</h1></div><div class="heading-actions"><button id="manage-gemini" class="secondary"><i data-lucide="key-round"></i>Gemini Key</button><button id="clear-history" class="secondary"><i data-lucide="trash-2"></i>清除歷史資料</button></div></div>
       <div class="section-heading"><h2>歷史日資料</h2><div class="heading-actions"><label class="file-button secondary"><i data-lucide="upload"></i>匯入 CSV<input id="csv-import" type="file" accept=".csv,text/csv" hidden></label><button id="csv-template" class="icon-button" title="下載 CSV 格式" aria-label="下載 CSV 格式"><i data-lucide="file-down"></i></button></div></div>
       <div class="history-toolbar"><select id="history-asset" aria-label="歷史資料品項"></select><button id="load-history" class="secondary"><i data-lucide="database-backup"></i>取得日資料</button><span id="history-status" class="muted"></span></div>
       <div id="history-list" class="history-list"></div>
@@ -102,6 +102,7 @@
       <div class="source-links"><a href="https://www.gold.org/goldhub/research/qaurum-vs-us-real-rates-and-dollar-model" target="_blank" rel="noopener">World Gold Council：美元與利率關係的限制 <i data-lucide="arrow-up-right"></i></a><a href="https://gold-api.com/faqs" target="_blank" rel="noopener">Gold API：報價定義與更新頻率 <i data-lucide="arrow-up-right"></i></a><a href="https://fred.stlouisfed.org/series/DFII10" target="_blank" rel="noopener">FRED：10 年實質殖利率 <i data-lucide="arrow-up-right"></i></a></div>
     </section>
   </main>
+  <dialog id="gemini-delete-dialog" aria-labelledby="delete-dialog-title"><h2 id="delete-dialog-title">刪除 Gemini Key？</h2><p>本系統保存的 Key 將被移除，後續分析不再使用它。Google 的原始 Key 不會被撤銷。</p><form method="dialog" class="modal-actions"><button value="cancel" class="secondary">取消</button><button value="delete" class="danger"><i data-lucide="trash-2"></i>確認刪除</button></form></dialog>
   <button id="mobile-summary" class="mobile-summary" hidden><span>黃金情境</span><strong id="mobile-direction">方向分歧</strong><i data-lucide="arrow-up-right"></i></button>
   <footer><span>PAW / 黃金跨市場研究</span><span>研究用途，無自動下單</span></footer>
   <script type="module" src="app.js"></script>
