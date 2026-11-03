@@ -29,7 +29,7 @@ GitHub `Settings > Pages > Build and deployment > Source` 改為 **GitHub Action
 
 Workflow 可用 repository variable `PAW_API_BASE_URL` 覆寫 API origin。它只包含公開 HTTPS 網址，不可放任何 Key。產生的 `runtime-config.json` 讓 Pages 子路徑正確呼叫 Cloudflare，而不是誤呼叫 `github.io/api/`。後端 CORS 只允許同源或設定的 GitHub Pages origin，保留管理存取碼保護。
 
-PWA 保留相對 `id`、`scope`、`start_url`，可在原網址安裝為 PAW。已安裝的舊版會透過新版 Service Worker 更新；必要時關閉 PAW 後重新開啟。不更改原有圖示，也不快取 Key 或 API 回應。
+PWA 保留原本 `index.html` 的安裝識別，設定相對 `scope`、`start_url`，可在原網址安裝為 PAW。已安裝的舊版會透過新版 Service Worker 更新；必要時關閉 PAW 後重新開啟。原始圖示實際為 JPEG，建置時保留圖案並轉為符合 manifest 的 192／512 PNG；不快取 Key 或 API 回應。
 
 ## 這次修正
 
