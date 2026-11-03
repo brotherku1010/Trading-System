@@ -1,10 +1,11 @@
-import { createIcons, RefreshCw, GitCompareArrows, ChartNoAxesCombined, CalendarDays, Database, RotateCcw, BookmarkPlus, Download, Info, ArrowUpRight, Sparkles, ExternalLink, CircleAlert, Clock3, Trash2, Upload, FileDown, DatabaseBackup, ShieldCheck, TrendingDown, TrendingUp, Minus, CircleHelp, X, List, Save, PlugZap, LockKeyhole, Copy, KeyRound } from 'lucide';
+import { createIcons, RefreshCw, GitCompareArrows, ChartNoAxesCombined, CalendarDays, Database, RotateCcw, BookmarkPlus, Download, Info, ArrowUpRight, Sparkles, ExternalLink, CircleAlert, Clock3, Trash2, Upload, FileDown, DatabaseBackup, ShieldCheck, TrendingDown, TrendingUp, Minus, CircleHelp, X, List, Save, PlugZap, LockKeyhole, Copy, KeyRound, Square } from 'lucide';
 import { FACTORS, ASSETS, REGIMES, MACRO } from './lib/catalog.js';
 import { scenarioScore, correlation, conditionalStudy, technicalSummary, projectionRange, parseHistoryCsv, macroSurprise, marketSessions } from './lib/analysis.js';
+import { createApiClient, withDeadline, analysisButtonState, createAnalysisTask } from './lib/client-api.js';
 
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
-const icons = () => createIcons({ icons: { RefreshCw, GitCompareArrows, ChartNoAxesCombined, CalendarDays, Database, RotateCcw, BookmarkPlus, Download, Info, ArrowUpRight, Sparkles, ExternalLink, CircleAlert, Clock3, Trash2, Upload, FileDown, DatabaseBackup, ShieldCheck, TrendingDown, TrendingUp, Minus, CircleHelp, X, List, Save, PlugZap, LockKeyhole, Copy, KeyRound } });
+const icons = () => createIcons({ icons: { RefreshCw, GitCompareArrows, ChartNoAxesCombined, CalendarDays, Database, RotateCcw, BookmarkPlus, Download, Info, ArrowUpRight, Sparkles, ExternalLink, CircleAlert, Clock3, Trash2, Upload, FileDown, DatabaseBackup, ShieldCheck, TrendingDown, TrendingUp, Minus, CircleHelp, X, List, Save, PlugZap, LockKeyhole, Copy, KeyRound, Square } });
 const fmt = (value, digits = 2) => Number.isFinite(value) ? value.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits }) : '—';
 const signed = (value, digits = 2) => Number.isFinite(value) ? `${value > 0 ? '+' : ''}${fmt(value, digits)}` : '—';
 const tone = value => value > 0 ? 'positive' : value < 0 ? 'negative' : 'neutral';
@@ -12,6 +13,9 @@ const statusNames = { recent: '近期更新', daily: '日資料', stale: '過期
 const state = { directions: {}, regime: 'normal', strength: 1, window: 252, horizon: 1, history: {}, quotes: {}, config: {}, calendar: [], tab: '', busy: new Set(), snapshotRunning: false, newsLoaded: false, calendarLoaded: false, study: null };
 let apiBase = '';
 let adminToken = '';
+let analysisTask;
+let providerTouched = false;
+const api = createApiClient({ getBase: () => apiBase, getToken: () => $('settings-token')?.value || $('analysis-token')?.value || adminToken });
 
 function localRead(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } }
 function localWrite(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch { notice('瀏覽器儲存空間不可用，情境僅保留於本分頁。'); } }
@@ -19,31 +23,63 @@ let saved = localRead('paw-gold-scenarios-v2', []);
 if (!Array.isArray(saved)) saved = [];
 
 function notice(message) { $('notice').textContent = message; $('notice').hidden = !message; }
-async function api(path, options = {}) {
-  const headers = new Headers(options.headers);
-  if ((path.startsWith('/api/settings/') || path === '/api/analyze') && adminToken) headers.set('Authorization', `Bearer ${adminToken}`);
-  const response = await fetch(`${apiBase}${path}`, { ...options, headers, signal: AbortSignal.timeout(path === '/api/analyze' ? 60000 : 75000), cache: 'no-store', credentials: 'omit' });
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error || `服務回應 ${response.status}`);
-  return data;
+function draftKey() { return $('analysis-api-key').value.trim() || $('gemini-api-key').value.trim(); }
+function updateAnalysisButton() {
+  const provider = $('ai-provider').value;
+  const button = analysisButtonState({ running: analysisTask?.running, provider, draftKey: draftKey() });
+  $('ai-submit').disabled = button.disabled;
+  $('ai-submit-label').textContent = button.label;
+  $('ai-submit').classList.toggle('busy', button.disabled);
+  $('ai-submit').setAttribute('aria-busy', String(button.disabled));
+  $('ai-cancel').hidden = !button.disabled;
+  $('analysis-key-label').hidden = provider !== 'gemini';
+  $('analysis-model-label').hidden = provider !== 'gemini';
 }
 
-async function refreshConfig() {
-  const config = await api('/api/config');
+function applyConfig(config) {
   state.config = config;
   const gemini = config.geminiSettings || {};
   $('ai-status').textContent = [config.openai ? 'OpenAI 已設定' : '', config.gemini ? 'Gemini 已設定' : ''].filter(Boolean).join(' · ') || '未設定 AI，不影響情境研究';
-  $('ai-submit').disabled = !config.openai && !config.gemini;
-  if (!config.openai && config.gemini) $('ai-provider').value = 'gemini';
+  if (!providerTouched && !draftKey() && config.openai && !config.gemini) $('ai-provider').value = 'openai';
   $('admin-token-label').hidden = Boolean(config.localAdmin);
   $('copy-admin-token').hidden = !config.localAdmin;
   $('analysis-token').closest('label').hidden = Boolean(config.localAdmin);
-  if (gemini.model) $('gemini-model').value = gemini.model;
+  if (gemini.model) { $('gemini-model').value ||= gemini.model; $('analysis-model').value ||= gemini.model; }
   $('gemini-key-status').textContent = gemini.saved ? `已加密儲存 · ${gemini.model} · ${timestamp(gemini.updatedAt)}` : gemini.legacy ? '使用伺服器環境變數' : gemini.disabled ? 'Key 已刪除' : gemini.persistent ? '尚未儲存 Key' : '後端尚未啟用加密保存';
   $('gemini-save').disabled = !gemini.persistent;
   $('gemini-delete').disabled = !gemini.persistent || (!gemini.saved && !gemini.legacy);
   $('gemini-test').disabled = !config.gemini;
   $('provider-status').innerHTML = `<div>API 後端<span>${esc(apiBase || location.origin)}</span></div><div>公開參考行情<span>Gold API / Binance / FRED；依來源可用性</span></div><div>Twelve Data<span>${config.twelveData ? 'Key 已設定，商品權限需逐項查詢' : '尚未設定 Key'}</span></div><div>Gemini<span>${gemini.saved ? 'Key 已加密保存在伺服器' : config.gemini ? '環境變數已設定' : '尚未設定 Key'}</span></div><div>cTrader XAUUSD 合約<span>未連線券商；公開現貨不是可成交 bid／ask</span></div>`;
+  updateAnalysisButton();
+}
+async function refreshConfig(options) { applyConfig(await api('/api/config', options)); }
+
+function applySavedGemini(result, savedKey = '') {
+  applyConfig({ ...state.config, gemini: true, geminiSettings: { ...state.config.geminiSettings, ...result, saved: true, disabled: false, legacy: false, available: true, persistent: true } });
+  $('gemini-model').value = result.model; $('analysis-model').value = result.model;
+  for (const id of ['gemini-api-key', 'analysis-api-key']) if ($(id).value.trim() === savedKey) $(id).value = '';
+  updateAnalysisButton();
+}
+
+async function prepareGemini(signal) {
+  const key = draftKey();
+  if ($('analysis-api-key').value.trim() && $('gemini-api-key').value.trim() && $('analysis-api-key').value.trim() !== $('gemini-api-key').value.trim()) throw new Error('分析區與設定頁輸入了不同的 Key，請先確認要使用哪一個。');
+  const stored = state.config.geminiSettings;
+  let model = $('analysis-model').value.trim() || $('gemini-model').value.trim() || stored?.model;
+  if (!key && !state.config.gemini) throw new Error('尚未儲存 Gemini Key。請填寫「Gemini API Key」，再按「儲存並分析」。');
+  if (key && !/^[A-Za-z0-9_-]{16,256}$/.test(key)) throw new Error('Gemini API Key 格式不正確；管理存取碼與 Gemini Key 是不同欄位。');
+  if (key || (model && model !== stored?.model)) {
+    if (!model) {
+      $('ai-output').textContent = '正在確認此 Key 可用的文字模型…';
+      const data = await api('/api/settings/gemini/models', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey: key }), signal });
+      model = (data.models.find(item => item.id === 'gemini-flash-latest') || data.models.find(item => /flash/.test(item.id)) || data.models[0])?.id;
+      if (!model) throw new Error('此 Key 未取得可用文字模型，請檢查 Google 權限。');
+    }
+    $('ai-output').textContent = '正在加密儲存 Gemini 設定…';
+    const saved = await api('/api/settings/gemini', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey: key, model }), signal });
+    applySavedGemini(saved, key);
+    $('gemini-settings-result').textContent = 'Key 已加密保存在後端。';
+  }
 }
 
 async function keyAction(button, task) {
@@ -306,6 +342,11 @@ function setTab() {
 }
 
 function setup() {
+  analysisTask = createAnalysisTask(running => {
+    updateAnalysisButton();
+    $('ai-output').setAttribute('aria-busy', String(running));
+    for (const id of ['ai-provider', 'analysis-token', 'analysis-api-key', 'analysis-model']) $(id).disabled = running;
+  });
   $('regime').innerHTML = Object.entries(REGIMES).map(([id, item]) => `<option value="${id}">${item.name}</option>`).join('');
   $('history-asset').innerHTML = ASSETS.map(item => `<option value="${item.id}">${item.name} / ${item.symbol}</option>`).join('');
   $('macro-event').innerHTML = MACRO.map(item => `<option value="${item.id}">${item.name}</option>`).join('');
@@ -358,16 +399,35 @@ function setup() {
   $('csv-template').addEventListener('click', () => download('history-format.csv', 'date,asset,close\n', 'text/csv;charset=utf-8'));
   $('clear-history').addEventListener('click', () => { state.history = {}; $('history-status').textContent = ''; renderHistory(); renderAnalysis(); });
   $('broker-price').addEventListener('input', compareBroker);
-  $('ai-form').addEventListener('submit', event => {
+  $('ai-form').addEventListener('submit', async event => {
     event.preventDefault();
-    busy($('ai-submit'), async () => {
-      $('ai-output').hidden = false; $('ai-output').textContent = '正在分析；僅傳送所選情境與研究問題，不傳送 CSV。';
-      try {
-        const data = await api('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider: $('ai-provider').value, directions: state.directions, regime: state.regime, strength: state.strength, question: $('ai-question').value }) });
+    if (analysisTask.running) return;
+    $('ai-output').hidden = false;
+    try {
+      await analysisTask.run(async signal => {
+        const question = $('ai-question').value.trim();
+        if (!question) { $('ai-question').focus(); throw new Error('請先填寫研究問題。'); }
+        $('ai-output').textContent = '正在確認 AI 設定…';
+        await refreshConfig({ signal });
+        const token = $('settings-token').value || $('analysis-token').value || adminToken;
+        if (!state.config.localAdmin && !token) throw new Error('請填寫管理存取碼；Gemini API Key 請放在另一個專用欄位。');
+        const provider = $('ai-provider').value;
+        if (provider === 'gemini') await prepareGemini(signal);
+        else if (!state.config.openai) throw new Error('尚未設定 OpenAI，請改選 Gemini 或先完成伺服器設定。');
+        $('ai-output').textContent = 'AI 正在分析… 若超過等待上限會自動停止；未傳送 CSV。';
+        const data = await api('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider, directions: state.directions, regime: state.regime, strength: state.strength, question }), signal });
         $('ai-output').textContent = `${data.text}\n\n${data.provider} / ${data.model} · ${timestamp(data.generatedAt)}\n${data.evidence}\n${data.disclaimer}`;
-      } catch (error) { $('ai-output').textContent = error.message; }
-    });
+      });
+    } catch (error) { $('ai-output').textContent = error.message || '分析失敗，請重試。'; }
   });
+  $('ai-cancel').addEventListener('click', () => analysisTask.cancel());
+  $('ai-retry-config').addEventListener('click', () => busy($('ai-retry-config'), async () => {
+    try { await refreshConfig(); }
+    catch (error) { $('ai-status').textContent = error.message; }
+  }));
+  $('ai-provider').addEventListener('change', () => { providerTouched = true; updateAnalysisButton(); });
+  for (const id of ['analysis-api-key', 'gemini-api-key']) $(id).addEventListener('input', updateAnalysisButton);
+  for (const [source, target] of [['analysis-model', 'gemini-model'], ['gemini-model', 'analysis-model']]) $(source).addEventListener('input', () => { $(target).value = $(source).value; });
   for (const id of ['settings-token', 'analysis-token']) $(id).addEventListener('input', () => {
     adminToken = $(id).value;
     $('settings-token').value = adminToken; $('analysis-token').value = adminToken;
@@ -380,9 +440,9 @@ function setup() {
   $('gemini-settings').addEventListener('submit', event => {
     event.preventDefault();
     keyAction($('gemini-save'), async () => {
-      await api('/api/settings/gemini', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey: $('gemini-api-key').value, model: $('gemini-model').value }) });
-      $('gemini-api-key').value = '';
-      await refreshConfig();
+      const key = $('gemini-api-key').value.trim();
+      const result = await api('/api/settings/gemini', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey: key, model: $('gemini-model').value }) });
+      applySavedGemini(result, key);
       $('gemini-settings-result').textContent = 'Key 已加密保存在後端；關閉或重新整理不會清除。尚未進行連線測試。';
     });
   });
@@ -390,6 +450,7 @@ function setup() {
     const data = await api('/api/settings/gemini/models', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey: $('gemini-api-key').value }) });
     $('gemini-model-list').innerHTML = data.models.map(model => `<option value="${esc(model.id)}">${esc(model.name)}</option>`).join('');
     if (!$('gemini-model').value && data.models.length) $('gemini-model').value = (data.models.find(model => model.id === 'gemini-flash-latest') || data.models.find(model => /flash/.test(model.id)) || data.models[0]).id;
+    $('analysis-model').value = $('gemini-model').value;
     $('gemini-settings-result').textContent = `取得 ${data.models.length} 個文字生成模型；模型選擇與額度依 Google 帳戶權限。尚未儲存變更。`;
   }));
   $('gemini-test').addEventListener('click', () => keyAction($('gemini-test'), async () => {
@@ -404,8 +465,8 @@ function setup() {
     if ($('gemini-delete-dialog').returnValue !== 'delete') return;
     keyAction($('gemini-delete'), async () => {
       await api('/api/settings/gemini', { method: 'DELETE' });
-      $('gemini-api-key').value = ''; $('gemini-model').value = '';
-      await refreshConfig();
+      $('gemini-api-key').value = ''; $('analysis-api-key').value = ''; $('gemini-model').value = ''; $('analysis-model').value = '';
+      applyConfig({ ...state.config, gemini: false, geminiSettings: { ...state.config.geminiSettings, saved: false, legacy: false, available: false, disabled: true, model: null } });
       $('gemini-settings-result').textContent = '本系統保存的 Key 已刪除，後續分析不再使用它。已送出的請求不受影響。';
     });
   });
@@ -413,6 +474,8 @@ function setup() {
   window.addEventListener('hashchange', setTab);
   window.addEventListener('resize', () => drawContributions(scenarioScore(state.directions, state.regime, state.strength)));
   document.addEventListener('visibilitychange', () => { renderQuotes(); if (!document.hidden) refreshSnapshot(); });
+  window.addEventListener('pagehide', () => analysisTask.cancel());
+  updateAnalysisButton();
   refreshConfig().catch(error => { $('ai-status').textContent = '連線設定取得失敗'; notice(error.message); });
   refreshSnapshot();
   setInterval(refreshSnapshot, 60000);
@@ -421,9 +484,11 @@ function setup() {
 }
 
 try {
-  const response = await fetch(new URL('./runtime-config.json', import.meta.url), { cache: 'no-store' });
-  if (!response.ok) throw new Error('Runtime configuration unavailable');
-  const config = await response.json();
+  const config = await withDeadline(async signal => {
+    const response = await fetch(new URL('./runtime-config.json', import.meta.url), { cache: 'no-store', signal });
+    if (!response.ok) throw new Error('Runtime configuration unavailable');
+    return response.json();
+  }, { timeoutMs: 8000 });
   if (config.apiBase) {
     const url = new URL(config.apiBase);
     if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw new Error('Invalid API origin');
