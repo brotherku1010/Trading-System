@@ -1,12 +1,13 @@
 {
-  "name": "PAW 交易軟體儀表板",
-  "short_name": "PAW 交易",
-  "description": "專屬手機版交易儀表板，整合 TradingView、即時籌碼與宏觀數據。",
+  "id": "./",
+  "name": "PAW 黃金情境研究",
+  "short_name": "PAW",
+  "description": "黃金跨資產情境與總經事件研究。",
   "start_url": "./index.html",
+  "scope": "./",
   "display": "standalone",
-  "background_color": "#0f172a",
-  "theme_color": "#0f172a",
-  "orientation": "portrait",
+  "background_color": "#f4f6f5",
+  "theme_color": "#202522",
   "icons": [
     {
       "src": "icon-192.png",

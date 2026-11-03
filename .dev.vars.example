@@ -1,0 +1,14 @@
+# Copy to .dev.vars locally. Use `wrangler secret put NAME` for Cloudflare.
+TWELVE_DATA_API_KEY=""
+OPENAI_API_KEY=""
+OPENAI_MODEL=""
+GEMINI_API_KEY=""
+GEMINI_MODEL=""
+# Required to enable paid AI requests. Use a long random value.
+ANALYSIS_TOKEN=""
+# 64 hex characters; keep the same value across deployments while a Key is saved.
+VAULT_ENCRYPTION_KEY=""
+# Set only in the ignored local dev file. Never enable on a public deployment.
+ALLOW_LOCAL_ADMIN="true"
+# Symbols must match your provider's catalog and subscription entitlement.
+MARKET_SYMBOLS_JSON='{"DXY":"DXY","WTI":"WTI/USD","SPX":"SPX","NDX":"NDX","DJI":"DJI","NIKKEI":"N225","EUROSTOXX":"STOXX50E"}'

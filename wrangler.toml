@@ -1,8 +1,20 @@
 #:schema node_modules/wrangler/config-schema.json
 name = "tradingsystem"
 main = "worker.js"
-compatibility_date = "2024-04-01"
+compatibility_date = "2026-01-01"
+
+[vars]
+ALLOWED_ORIGINS = "https://brotherku1010.github.io"
+
+[[durable_objects.bindings]]
+name = "CREDENTIAL_VAULT"
+class_name = "CredentialVault"
+
+[[migrations]]
+tag = "v1-credential-vault"
+new_sqlite_classes = ["CredentialVault"]
 
 [assets]
-directory = "."
+directory = "./public"
 binding = "ASSETS"
+run_worker_first = ["/api/*", "/news", "/macro", "/market-data", "/sentiment"]

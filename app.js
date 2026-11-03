@@ -1,748 +1,428 @@
-// PAW Trading Dashboard - Core JS Logic
+import { createIcons, RefreshCw, GitCompareArrows, ChartNoAxesCombined, CalendarDays, Database, RotateCcw, BookmarkPlus, Download, Info, ArrowUpRight, Sparkles, ExternalLink, CircleAlert, Clock3, Trash2, Upload, FileDown, DatabaseBackup, ShieldCheck, TrendingDown, TrendingUp, Minus, CircleHelp, X, List, Save, PlugZap, LockKeyhole, Copy } from 'lucide';
+import { FACTORS, ASSETS, REGIMES, MACRO } from './lib/catalog.js';
+import { scenarioScore, correlation, conditionalStudy, technicalSummary, projectionRange, parseHistoryCsv, macroSurprise, marketSessions } from './lib/analysis.js';
 
-// 1. Cloudflare Workers Proxy URL Configuration
-// -------------------------------------------------------------
-const WORKER_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
-  ? 'https://tradingsystem.jppsku.workers.dev' 
-  : window.location.origin;
-// -------------------------------------------------------------
+const $ = id => document.getElementById(id);
+const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+const icons = () => createIcons({ icons: { RefreshCw, GitCompareArrows, ChartNoAxesCombined, CalendarDays, Database, RotateCcw, BookmarkPlus, Download, Info, ArrowUpRight, Sparkles, ExternalLink, CircleAlert, Clock3, Trash2, Upload, FileDown, DatabaseBackup, ShieldCheck, TrendingDown, TrendingUp, Minus, CircleHelp, X, List, Save, PlugZap, LockKeyhole, Copy } });
+const fmt = (value, digits = 2) => Number.isFinite(value) ? value.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits }) : '—';
+const signed = (value, digits = 2) => Number.isFinite(value) ? `${value > 0 ? '+' : ''}${fmt(value, digits)}` : '—';
+const tone = value => value > 0 ? 'positive' : value < 0 ? 'negative' : 'neutral';
+const statusNames = { recent: '近期更新', daily: '日資料', stale: '過期／休市待確認', 'unknown-time': '時間未知', unavailable: '無資料', 'update-failed': '更新失敗／舊值' };
+const state = { directions: {}, regime: 'normal', strength: 1, window: 252, horizon: 1, history: {}, quotes: {}, config: {}, calendar: [], tab: '', busy: new Set(), snapshotRunning: false, newsLoaded: false, calendarLoaded: false, study: null };
+let apiBase = '';
+let adminToken = '';
 
-// 2. Application State
-const state = {
-  activeAsset: 'XAUUSD', // 'XAUUSD', 'BTCUSD', 'ETHUSD'
-  activeTab: 'charts',   // 'charts', 'sentiment', 'macro'
-  goldData: null,
-  btcData: null,
-  ethData: null
-};
+function localRead(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } }
+function localWrite(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch { notice('瀏覽器儲存空間不可用，情境僅保留於本分頁。'); } }
+let saved = localRead('paw-gold-scenarios-v2', []);
+if (!Array.isArray(saved)) saved = [];
 
-// Asset Map config
-const assetConfig = {
-  XAUUSD: {
-    name: '🥇 黃金 (XAUUSD)',
-    symbol: 'OANDA:XAUUSD',
-    feedSymbol: 'XAUUSD',
-    sentiment: {
-      source: 'OANDA 掛單多空比 (離線)',
-      longRatio: 54,
-      shortRatio: 46,
-      details: [
-        { label: '大戶持倉比率', value: '58% 多 / 42% 空', trend: 'up' },
-        { label: '壓力區間 (Resistance)', value: '4080 - 4110', trend: 'neutral' },
-        { label: '支撐區間 (Support)', value: '4020 - 4050', trend: 'up' }
-      ]
-    }
-  },
-  BTCUSD: {
-    name: '🪙 比特幣 (BTCUSD)',
-    symbol: 'BINANCE:BTCUSDT',
-    feedSymbol: 'BTC',
-    sentiment: {
-      source: 'Coinglass 全網合約多空比 (離線)',
-      longRatio: 51.5,
-      shortRatio: 48.5,
-      details: [
-        { label: '24h 爆倉金額', value: '多單 $1,240萬 / 空單 $890萬', trend: 'down' },
-        { label: '資金費率 (Funding Rate)', value: '+0.0125% / 8h', trend: 'up' },
-        { label: '未平倉量 (OI)', value: '$18.4 B (增加 2.4%)', trend: 'up' }
-      ]
-    }
-  },
-  ETHUSD: {
-    name: '💎 以太幣 (ETHUSD)',
-    symbol: 'BINANCE:ETHUSDT',
-    feedSymbol: 'ETH',
-    sentiment: {
-      source: 'Coinglass 全網合約多空比 (離線)',
-      longRatio: 48.2,
-      shortRatio: 51.8,
-      details: [
-        { label: '24h 爆倉金額', value: '多單 $620萬 / 空單 $750萬', trend: 'up' },
-        { label: '資金費率 (Funding Rate)', value: '+0.0085% / 8h', trend: 'neutral' },
-        { label: 'Gas 費率', value: '18 Gwei', trend: 'down' }
-      ]
-    }
-  }
-};
-
-// Macro Data Calendar Mock (Fallback data)
-const macroCalendar = [
-  { time: '週四 20:30', currency: 'USD', event: '核心 PCE 物價指數年率 (PCE Inflation)', impact: 'high', previous: '2.6%', forecast: '2.5%' },
-  { time: '週四 20:30', currency: 'USD', event: '初請失業金人數 (Unemployment Claims)', impact: 'medium', previous: '238K', forecast: '240K' },
-  { time: '週五 22:00', currency: 'USD', event: '密西根大學消費者信心指數終值', impact: 'medium', previous: '65.6', forecast: '66.0' },
-  { time: '下週三 02:00', currency: 'USD', event: '美聯儲利率決議 (Fed Interest Rate Decision)', impact: 'high', previous: '5.50%', forecast: '5.50%' },
-  { time: '下週五 20:30', currency: 'USD', event: '非農就業人口變動 (NFP) / 失業率', impact: 'high', previous: '272K / 4.0%', forecast: '185K / 4.0%' }
-];
-
-// News ticker initial list (Fallback data)
-const newsTickerData = [
-  "🔥 即時快訊：美國 PCE 數據發佈前夕，市場情緒偏向保守",
-  "⚡ 加密貨幣：比特幣在 $64,000 關卡持續震盪，以太坊現貨 ETF 審批迎來新進展",
-  "📊 宏觀經濟：美國十年期國債收益率跌至 4.23%，美元指數微跌",
-  "🪙 鏈上數據：某巨鯨於過去 2 小時向 Binance 轉入 1,200 枚 BTC，價值約 7,680 萬美元",
-  "💎 黃金分析：地緣政治風險稍緩，黃金在 2330 美元附近尋求底部支撐"
-];
-
-// 3. Initialize App
-window.addEventListener('DOMContentLoaded', async () => {
-  setupMarquee();
-  
-  // Initial fast price fetch & render
-  await updateMarketUI();
-  
-  // Initial worker fetch (rumors, indicators)
-  fetchWorkerData();
-  
-  loadHeatmap();
-  renderSentiment();
-  renderMacro();
-  setupEventListeners();
-  registerServiceWorker();
-  
-  // Fast loop for prices (every 5 seconds)
-  setInterval(() => {
-    updateMarketUI();
-  }, 5000);
-  
-  // Slow loop for rumors/indicators (every 20 seconds)
-  setInterval(() => {
-    fetchWorkerData();
-  }, 20000);
-});
-
-// 4. Setup Marquee News Ticker (Fetches live or falls back)
-async function setupMarquee() {
-  const marqueeContent = document.getElementById('marquee-content');
-  if (!marqueeContent) return;
-  
-  let newsList = [...newsTickerData];
-  
-  if (WORKER_URL) {
-    try {
-      const response = await fetch(`${WORKER_URL}/news`);
-      if (response.ok) {
-        const liveNews = await response.json();
-        if (Array.isArray(liveNews) && liveNews.length > 0) {
-          newsList = liveNews.map(item => `🔥 ${item}`);
-          console.log('[Live Data] Loaded news ticker from Cloudflare Worker');
-        }
-      }
-    } catch (err) {
-      console.warn('[Fallback] Failed to fetch news from Worker, using mock data:', err);
-    }
-  }
-  
-  const combinedNews = newsList.join('    |    ');
-  marqueeContent.innerHTML = `<span class="px-4">${combinedNews}</span><span class="px-4">${combinedNews}</span>`;
+function notice(message) { $('notice').textContent = message; $('notice').hidden = !message; }
+async function api(path, options = {}) {
+  const headers = new Headers(options.headers);
+  if ((path.startsWith('/api/settings/') || path === '/api/analyze') && adminToken) headers.set('Authorization', `Bearer ${adminToken}`);
+  const response = await fetch(`${apiBase}${path}`, { ...options, headers, signal: AbortSignal.timeout(path === '/api/analyze' ? 60000 : 75000), cache: 'no-store', credentials: 'omit' });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `服務回應 ${response.status}`);
+  return data;
 }
 
-// 5. Fetch Binance Tickers Directly from Frontend Browser Client
-async function fetchLivePrices() {
-  try {
-    // 1. Fetch BTCUSDT (CORS allowed by Binance)
-    const resBtc = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT');
-    if (resBtc.ok) {
-      const data = await resBtc.json();
-      state.btcData = {
-        price: parseFloat(data.lastPrice),
-        changePercent: parseFloat(data.priceChangePercent),
-        high: parseFloat(data.highPrice),
-        low: parseFloat(data.lowPrice)
-      };
-    }
-  } catch (e) {
-    console.error('Failed to fetch BTC price directly from Binance:', e);
-  }
-  
-  try {
-    // 2. Fetch ETHUSDT (CORS allowed by Binance)
-    const resEth = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbol=ETHUSDT');
-    if (resEth.ok) {
-      const data = await resEth.json();
-      state.ethData = {
-        price: parseFloat(data.lastPrice),
-        changePercent: parseFloat(data.priceChangePercent),
-        high: parseFloat(data.highPrice),
-        low: parseFloat(data.lowPrice)
-      };
-    }
-  } catch (e) {
-    console.error('Failed to fetch ETH price directly from Binance:', e);
-  }
-
-  try {
-    // 3. Fetch PAXGUSDT (CORS allowed by Binance)
-    const resPaxg = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbol=PAXGUSDT');
-    if (resPaxg.ok) {
-      const data = await resPaxg.json();
-      // Apply offset to get Gold around $4,080.
-      // If PAXG price is $2,425, adding 1655 gives $4,080.
-      const offset = 1655; 
-      state.goldData = {
-        price: parseFloat(data.lastPrice) + offset,
-        changePercent: parseFloat(data.priceChangePercent),
-        high: parseFloat(data.highPrice) + offset,
-        low: parseFloat(data.lowPrice) + offset
-      };
-    }
-  } catch (e) {
-    console.error('Failed to fetch PAXG price directly from Binance:', e);
-  }
-  
-  // Set fallback state if any fails
-  if (!state.btcData) state.btcData = { price: 61250.40, changePercent: +1.25, high: 61800.00, low: 60100.00 };
-  if (!state.ethData) state.ethData = { price: 1652.80, changePercent: -0.85, high: 1685.00, low: 1630.00 };
-  if (!state.goldData) state.goldData = { price: 4082.35, changePercent: +0.32, high: 4095.50, low: 4065.10 };
+async function refreshConfig() {
+  const config = await api('/api/config');
+  state.config = config;
+  const gemini = config.geminiSettings || {};
+  $('ai-status').textContent = [config.openai ? 'OpenAI 已設定' : '', config.gemini ? 'Gemini 已設定' : ''].filter(Boolean).join(' · ') || '未設定 AI，不影響情境研究';
+  $('ai-submit').disabled = !config.openai && !config.gemini;
+  if (!config.openai && config.gemini) $('ai-provider').value = 'gemini';
+  $('admin-token-label').hidden = Boolean(config.localAdmin);
+  $('copy-admin-token').hidden = !config.localAdmin;
+  $('analysis-token').closest('label').hidden = Boolean(config.localAdmin);
+  if (gemini.model) $('gemini-model').value = gemini.model;
+  $('gemini-key-status').textContent = gemini.saved ? `已加密儲存 · ${gemini.model} · ${timestamp(gemini.updatedAt)}` : gemini.legacy ? '使用伺服器環境變數' : gemini.disabled ? 'Key 已刪除' : gemini.persistent ? '尚未儲存 Key' : '後端尚未啟用加密保存';
+  $('gemini-save').disabled = !gemini.persistent;
+  $('gemini-delete').disabled = !gemini.persistent || (!gemini.saved && !gemini.legacy);
+  $('gemini-test').disabled = !config.gemini;
+  $('provider-status').innerHTML = `<div>API 後端<span>${esc(apiBase || location.origin)}</span></div><div>公開參考行情<span>Gold API / Binance / FRED；依來源可用性</span></div><div>Twelve Data<span>${config.twelveData ? 'Key 已設定，商品權限需逐項查詢' : '尚未設定 Key'}</span></div><div>Gemini<span>${gemini.saved ? 'Key 已加密保存在伺服器' : config.gemini ? '環境變數已設定' : '尚未設定 Key'}</span></div><div>cTrader XAUUSD 合約<span>未連線券商；公開現貨不是可成交 bid／ask</span></div>`;
 }
 
-// 6. Update Price UI Cards immediately
-async function updateMarketUI() {
-  await fetchLivePrices();
-  
-  const priceDisplay = document.getElementById('spot-price-display');
-  const badgeEl = document.getElementById('price-change-badge');
-  const assetNameEl = document.getElementById('active-asset-name');
-  const highEl = document.getElementById('price-high');
-  const lowEl = document.getElementById('price-low');
-  
-  if (!priceDisplay) return;
-  
-  let currentData = state.goldData;
-  if (state.activeAsset === 'BTCUSD') currentData = state.btcData;
-  if (state.activeAsset === 'ETHUSD') currentData = state.ethData;
-  
-  // Update Asset Name
-  if (assetNameEl) {
-    assetNameEl.textContent = state.activeAsset === 'XAUUSD' ? '🥇 黃金 Spot' : (state.activeAsset === 'BTCUSD' ? '🪙 BTC' : '💎 ETH');
-  }
-  
-  // Format Price
-  const formattedPrice = state.activeAsset === 'XAUUSD' 
-    ? `$${currentData.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-    : `$${currentData.price.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 2 })}`;
-  priceDisplay.textContent = formattedPrice;
-  
-  const formattedHigh = state.activeAsset === 'XAUUSD' 
-    ? `$${currentData.high.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-    : `$${currentData.high.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 2 })}`;
-  const formattedLow = state.activeAsset === 'XAUUSD' 
-    ? `$${currentData.low.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-    : `$${currentData.low.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 2 })}`;
-  
-  if (highEl) highEl.textContent = formattedHigh;
-  if (lowEl) lowEl.textContent = formattedLow;
-  
-  // Update Badge
-  const isPositive = currentData.changePercent >= 0;
-  if (badgeEl) {
-    badgeEl.textContent = `${isPositive ? '+' : ''}${currentData.changePercent.toFixed(2)}%`;
-    badgeEl.className = `px-2 py-0.5 rounded font-bold text-[10px] ${
-      isPositive 
-        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
-        : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-    }`;
-  }
-  
-  // Also draw sentiment heatmap if active tab is Sentiment
-  if (state.activeTab === 'sentiment') {
-    const canvas = document.getElementById('liquidation-heatmap');
-    if (canvas) drawLiquidationHeatmap(canvas, currentData.price);
-  }
-}
-
-// 7. Fetch Worker Data (Rumors, indicators, Fear & Greed)
-async function fetchWorkerData() {
-  const rsiEl = document.getElementById('status-rsi');
-  const macdEl = document.getElementById('status-macd');
-  const trendEl = document.getElementById('status-trend');
-  
-  const fngValueEl = document.getElementById('fng-value');
-  const fngClassEl = document.getElementById('fng-class');
-  const fngBarFill = document.getElementById('fng-bar-fill');
-  
-  const rumorsContainer = document.getElementById('rumors-container');
-  
-  try {
-    const response = await fetch(`${WORKER_URL}/market-data?asset=${state.activeAsset}`);
-    if (response.ok) {
-      const data = await response.json();
-      
-      // Update Status Indicators
-      if (rsiEl) rsiEl.textContent = data.rsi;
-      if (macdEl) macdEl.textContent = data.macd;
-      if (trendEl) {
-        trendEl.textContent = data.trend;
-        if (data.trend.includes("多頭")) {
-          trendEl.className = "font-bold text-emerald-400";
-        } else if (data.trend.includes("空頭")) {
-          trendEl.className = "font-bold text-rose-400";
-        } else {
-          trendEl.className = "font-bold text-yellow-400";
-        }
-      }
-      
-      // Update Fear & Greed
-      if (fngValueEl && fngClassEl && fngBarFill) {
-        fngValueEl.textContent = data.fearGreed.value;
-        fngClassEl.textContent = getFearGreedChinese(data.fearGreed.classification);
-        fngBarFill.style.width = `${data.fearGreed.value}%`;
-        
-        const fngClass = data.fearGreed.classification.toLowerCase();
-        if (fngClass.includes('fear')) {
-          fngClassEl.className = "text-xs font-bold text-rose-400";
-        } else if (fngClass.includes('greed')) {
-          fngClassEl.className = "text-xs font-bold text-emerald-400";
-        } else {
-          fngClassEl.className = "text-xs font-bold text-yellow-400";
-        }
-      }
-      
-      // Update Rumors
-      if (rumorsContainer) {
-        let rumorsHtml = '';
-        data.rumors.forEach(rumor => {
-          rumorsHtml += `
-            <div class="p-3 bg-slate-800/40 rounded-xl border border-slate-700/50 space-y-1.5 hover:bg-slate-800/60 transition-colors">
-              <div class="flex justify-between items-center text-[10px]">
-                <span class="px-2 py-0.5 border rounded font-bold ${rumor.badgeColor}">${rumor.type}</span>
-                <span class="text-slate-500 font-mono">${rumor.time}</span>
-              </div>
-              <p class="text-slate-300 text-xs leading-relaxed">${rumor.content}</p>
-            </div>
-          `;
-        });
-        rumorsContainer.innerHTML = rumorsHtml;
-      }
-    }
-  } catch (e) {
-    console.error('Failed to fetch worker market data:', e);
-  }
-}
-
-// Convert Fear Greed label to Traditional Chinese
-function getFearGreedChinese(englishClass) {
-  const mapping = {
-    'Extreme Fear': '極度恐懼 (Extreme Fear)',
-    'Fear': '恐懼 (Fear)',
-    'Neutral': '中立 (Neutral)',
-    'Greed': '貪婪 (Greed)',
-    'Extreme Greed': '極度貪婪 (Extreme Greed)'
-  };
-  return mapping[englishClass] || englishClass;
-}
-
-// 8. Dynamically Load Heatmap scripts (Forex/Crypto)
-function loadHeatmap() {
-  const container = document.getElementById('heatmap-wrapper');
-  if (!container) return;
-  
-  container.innerHTML = '';
-  
-  const widgetContainer = document.createElement('div');
-  widgetContainer.className = 'tradingview-widget-container h-full w-full';
-  
-  const widgetSub = document.createElement('div');
-  widgetSub.className = 'tradingview-widget-container__widget h-full w-full';
-  widgetContainer.appendChild(widgetSub);
-  
-  const script = document.createElement('script');
-  script.type = 'text/javascript';
-  script.async = true;
-  
-  if (state.activeAsset === 'XAUUSD') {
-    // Load Forex Heatmap for Gold Spot Context
-    script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-forex-heat-map.js';
-    script.innerHTML = JSON.stringify({
-      "width": "100%",
-      "height": "100%",
-      "currencies": ["EUR", "USD", "JPY", "GBP", "CHF", "AUD", "CAD", "NZD"],
-      "isTransparent": true,
-      "colorTheme": "dark",
-      "locale": "zh_TW"
-    });
-  } else {
-    // Load Crypto Coins Heatmap for BTC / ETH
-    script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-crypto-coins-heatmap.js';
-    script.innerHTML = JSON.stringify({
-      "dataSource": "Crypto",
-      "blockSize": "market_cap_calc",
-      "blockColor": "24h_close_change|5",
-      "locale": "zh_TW",
-      "colorTheme": "dark",
-      "isZoomEnabled": true,
-      "hasSymbolTooltip": true,
-      "width": "100%",
-      "height": "100%"
-    });
-  }
-  
-  widgetContainer.appendChild(script);
-  container.appendChild(widgetContainer);
-}
-
-// 9. Render Sentiment Tab Data & Liquidation Heatmap Canvas
-async function renderSentiment() {
-  const config = assetConfig[state.activeAsset];
-  const sentimentSection = document.getElementById('sentiment-data-container');
-  if (!sentimentSection) return;
-  
-  sentimentSection.innerHTML = `
-    <div class="flex flex-col items-center justify-center py-16">
-      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-yellow-400"></div>
-      <p class="text-xs text-slate-400 mt-4">正在讀取最新籌碼數據...</p>
-    </div>
-  `;
-  
-  let sentimentData = { ...config.sentiment };
-  
-  if (WORKER_URL) {
-    try {
-      const response = await fetch(`${WORKER_URL}/sentiment?asset=${state.activeAsset}`);
-      if (response.ok) {
-        const liveSentiment = await response.json();
-        if (liveSentiment && liveSentiment.longRatio !== undefined) {
-          sentimentData = liveSentiment;
-        }
-      }
-    } catch (err) {
-      console.warn('[Fallback] Failed to fetch sentiment from Worker, using mock data:', err);
-    }
-  }
-  
-  const longPercent = sentimentData.longRatio;
-  const shortPercent = sentimentData.shortRatio;
-  
-  let detailsHtml = '';
-  sentimentData.details.forEach(item => {
-    let icon = '➡️';
-    let colorClass = 'text-gray-400';
-    if (item.trend === 'up') {
-      icon = '↗️';
-      colorClass = 'text-neon-green';
-    } else if (item.trend === 'down') {
-      icon = '↘️';
-      colorClass = 'text-neon-red';
-    }
-    
-    detailsHtml += `
-      <div class="flex justify-between items-center p-3 bg-slate-800/50 rounded-xl border border-slate-700/50">
-        <span class="text-slate-400 text-sm">${item.label}</span>
-        <span class="font-medium text-sm ${colorClass} flex items-center gap-1">
-          ${item.value} ${icon}
-        </span>
-      </div>
-    `;
+async function keyAction(button, task) {
+  await busy(button, async () => {
+    $('gemini-settings-result').textContent = '處理中…';
+    try { await task(); }
+    catch (error) { $('gemini-settings-result').textContent = error.message; }
   });
-  
-  sentimentSection.innerHTML = `
-    <div class="mb-4 text-center">
-      <h3 class="text-lg font-semibold text-white">${config.name} 籌碼觀測</h3>
-      <p class="text-xs text-slate-400 mt-1">數據來源：${sentimentData.source}</p>
-    </div>
-    
-    <div class="bg-slate-800/80 p-5 rounded-2xl border border-slate-700/80 mb-4 shadow-xl">
-      <div class="flex justify-between text-sm mb-2 font-bold">
-        <span class="text-neon-green">LONG 多頭 (${longPercent}%)</span>
-        <span class="text-neon-red">SHORT 空頭 (${shortPercent}%)</span>
-      </div>
-      
-      <div class="ratio-bar w-full">
-        <div class="ratio-fill" style="width: ${longPercent}%"></div>
-      </div>
-      
-      <div class="flex justify-between text-xs text-slate-400 mt-3">
-        <span>多單優勢</span>
-        <span>${longPercent > shortPercent ? '多頭佔優' : '空頭佔優'}</span>
-        <span>空單優勢</span>
-      </div>
-    </div>
-    
-    <div class="space-y-3">
-      ${detailsHtml}
-    </div>
-    
-    <!-- Custom 24h Liquidation Heatmap (Canvas Rendered) -->
-    <div class="mt-6 p-4 bg-slate-800/80 rounded-2xl border border-slate-700/80 shadow-md space-y-3">
-      <div class="flex justify-between items-center border-b border-slate-700 pb-2">
-        <h3 class="text-xs font-bold text-white flex items-center gap-1.5">
-          <span>🔥</span> 24h 清算熱力圖 (Liquidation Heatmap)
-        </h3>
-        <span class="text-[10px] text-slate-500 font-mono">即時更新</span>
-      </div>
-      <canvas id="liquidation-heatmap" class="w-full aspect-video rounded-xl bg-slate-950 border border-slate-800" width="600" height="340"></canvas>
-      <div class="flex justify-between text-[10px] text-slate-500 px-1">
-        <span>-3.0% 支撐帶</span>
-        <span>目前價位 (中心)</span>
-        <span>+3.0% 阻力帶</span>
-      </div>
-    </div>
-  `;
-
-  // Draw Heatmap immediately
-  let currentPrice = 4080.0;
-  if (state.activeAsset === 'BTCUSD' && state.btcData) currentPrice = state.btcData.price;
-  else if (state.activeAsset === 'ETHUSD' && state.ethData) currentPrice = state.ethData.price;
-  else if (state.activeAsset === 'XAUUSD' && state.goldData) currentPrice = state.goldData.price;
-  
-  const canvas = document.getElementById('liquidation-heatmap');
-  if (canvas) {
-    drawLiquidationHeatmap(canvas, currentPrice);
+  const config = state.config.geminiSettings;
+  if (config) {
+    $('gemini-delete').disabled = !config.persistent || (!config.saved && !config.legacy);
+    $('gemini-save').disabled = !config.persistent;
+    $('gemini-test').disabled = !state.config.gemini;
   }
 }
+async function busy(button, task) {
+  if (button.disabled) return;
+  button.disabled = true;
+  try { await task(); } catch (error) { notice(error.message || '連線失敗，請重試。'); }
+  finally { button.disabled = false; }
+}
 
-// 10. Canvas Drawing Engine for Liquidation Heatmap
-function drawLiquidationHeatmap(canvas, price) {
+function quoteState(quote) {
+  if (!Number.isFinite(quote?.price)) return 'unavailable';
+  if (quote.refreshFailed) return 'update-failed';
+  const date = Date.parse(quote.asOf);
+  if (!Number.isFinite(date) || date > Date.now() + 60000) return 'unknown-time';
+  if (quote.quoteType === 'daily-yield') return Date.now() - date > 7 * 86400000 ? 'stale' : 'daily';
+  return Date.now() - date > 120000 ? 'stale' : 'recent';
+}
+function timestamp(value, zone = 'Asia/Taipei', dateOnly = false) {
+  if (!value || !Number.isFinite(Date.parse(value))) return '時間未知';
+  if (dateOnly) return value.slice(0, 10);
+  return new Intl.DateTimeFormat('zh-TW', { timeZone: zone, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(value));
+}
+function quoteChange(q) {
+  if (Number.isFinite(q?.changeBps)) return `${signed(q.changeBps, 1)} bp`;
+  return Number.isFinite(q?.changePercent) ? `${signed(q.changePercent)}%` : '漲跌幅未提供';
+}
+
+function renderQuotes() {
+  $('quote-strip').innerHTML = ['GOLD', 'SILVER', 'BTC', 'ETH', 'US10Y', 'REAL10Y'].map(id => {
+    const asset = ASSETS.find(item => item.id === id), quote = state.quotes[id], status = quoteState(quote);
+    return `<div class="strip-quote"><div class="quote-name"><span>${esc(asset.name)}</span><span class="dot ${status}" title="${statusNames[status]}"></span></div><div class="strip-price">${fmt(quote?.price)}${asset.kind === 'yield' && Number.isFinite(quote?.price) ? '<small>%</small>' : ''}</div><div class="strip-source">${status === 'unavailable' ? '無可用資料' : `${esc(statusNames[status])} · ${timestamp(quote.asOf, 'Asia/Taipei', quote.precision === 'date')}`}</div></div>`;
+  }).join('');
+  if (state.tab === 'markets') renderMarkets();
+  if (state.tab === 'settings') renderAudit();
+}
+
+function renderFactors() {
+  $('factor-rows').innerHTML = FACTORS.map(factor => `<tr data-factor="${factor.id}"><td><div class="factor-name">${factor.name}<span class="factor-hint" tabindex="0" title="${esc(factor.note)}"><i data-lucide="circle-help"></i></span></div><div class="factor-symbol">${factor.symbol}${factor.proxy ? ' / ETF 代理' : ''}</div></td><td><div class="direction-control" role="radiogroup" aria-label="${factor.name}假設方向">${[[-1, 'trending-down', '下跌'], [0, 'minus', '不設定'], [1, 'trending-up', '上漲']].map(([value, icon, name]) => `<label title="${name}"><input type="radio" name="dir-${factor.id}" value="${value}" aria-label="${factor.name}${name}" ${(state.directions[factor.id] || 0) === value ? 'checked' : ''}><span><i data-lucide="${icon}"></i></span></label>`).join('')}</div></td><td class="correlation-cell">—</td><td class="influence-cell neutral">—</td></tr>`).join('');
+  icons();
+}
+
+function renderAnalysis() {
+  const result = scenarioScore(state.directions, state.regime, state.strength);
+  const study = conditionalStudy(state.history, state.directions, { window: state.window, horizon: state.horizon });
+  state.study = study;
+  $('scenario-label').textContent = result.label;
+  $('scenario-label').className = tone(result.total);
+  $('mobile-direction').textContent = result.label;
+  $('mobile-direction').className = tone(result.total);
+  $('regime-note').textContent = result.regime.note;
+  $('score-marker').style.left = `${Math.max(3, Math.min(97, 50 + result.total * 4))}%`;
+  $('selected-count').textContent = `${result.contributions.length} 項已設定`;
+  $('sample-count').textContent = `${study.n} 筆相符`;
+  const missingNames = study.missing.map(id => FACTORS.find(f => f.id === id)?.name).join('、');
+  $('study-result').innerHTML = study.probability === null
+    ? `<p class="muted">${esc(study.reason)}${missingNames ? `：${esc(missingNames)}` : ''}。</p>`
+    : `<div class="study-number">${fmt(study.probability * 100, 1)}<small>% 後續上漲頻率</small></div><div class="metric-row"><span>Wilson 95% 區間</span><strong>${fmt(study.interval[0] * 100, 1)}–${fmt(study.interval[1] * 100, 1)}%</strong></div><div class="metric-row"><span>後 ${state.horizon} 日報酬中位數</span><strong class="${tone(study.median)}">${signed(study.median)}%</strong></div><div class="metric-row"><span>歷史 10–90 百分位</span><strong>${signed(study.range[0])}% 至 ${signed(study.range[1])}%</strong></div><p class="muted">${study.start} 至 ${study.end}。排除重疊後續期間；僅依方向篩選，不含環境與強度。門檻：價格 0.1%、殖利率 1 bp。未做樣本外驗證；區間未校正序列相依。</p>`;
+  const technical = technicalSummary(state.history.GOLD?.bars);
+  const gold = state.quotes.GOLD;
+  let technicalHtml = technical ? `<div class="metric-row"><span>近 20 日收盤最低／最高</span></div><div class="metric-row"><strong>${fmt(technical.low)}–${fmt(technical.high)}</strong><span>USD / oz</span></div><div class="metric-row"><span>20 日均值</span><strong>${fmt(technical.average)}</strong></div><div class="metric-row"><span>日 RSI (14)</span><strong>${fmt(technical.rsi, 1)}</strong></div><div class="metric-row"><span>日 MACD 柱狀值</span><strong>${signed(technical.macd)}</strong></div><p class="muted">資料截至 ${technical.end}；觀察區間不是支撐／壓力保證。${esc(state.history.GOLD.source)}</p>` : '<p class="muted">缺少黃金歷史日資料，不產生價位或技術指標。</p>';
+  const historyRecent = technical && Date.now() - Date.parse(technical.end) <= 7 * 86400000;
+  const projection = projectionRange(study, gold, technical?.end);
+  if (projection) technicalHtml += `<div class="metric-row"><span>歷史情境報酬套用參考現貨</span></div><div class="metric-row"><strong>${fmt(projection[0])}–${fmt(projection[1])}</strong></div><p class="muted">僅為歷史分位數的機械投射，非未來信賴區間，也不是 cTrader 可成交價。</p>`;
+  else if (technical && !historyRecent) technicalHtml += '<p class="muted">歷史資料超過 7 日未更新，不套用目前現貨推算價位。</p>';
+  $('technical-result').innerHTML = technicalHtml;
+  const risks = ['相同經濟衝擊會同時影響多個品項；同組因子以平均降低重複計權，但未建模共線性。'];
+  if (state.directions.DXY === 1) risks.push('美元與黃金同漲可能出現在避險、央行買盤或通膨失控；不能只靠美指判斷。');
+  if (state.directions.WTI === -1) risks.push('原油跌若源於需求衰退或流動性緊縮，黃金未必上漲。');
+  if (state.regime === 'normal') risks.push('實質利率、通膨預期與資金需求改變時，傳統關係可能失效。');
+  if (state.regime === 'liquidity') risks.push('去槓桿初期黃金可能一起被賣出；政策救市後關係也可能反轉。');
+  if (Object.keys(state.history).length) risks.push('日資料按日期比對，不代表同一秒收盤；跨市場結果僅供探索。');
+  $('scenario-risks').innerHTML = risks.map(risk => `<li>${esc(risk)}</li>`).join('');
+  for (const factor of FACTORS) {
+    const row = document.querySelector(`[data-factor="${factor.id}"]`);
+    const corr = correlation(state.history, factor.id, state.window);
+    row.querySelector('.correlation-cell').innerHTML = `<span class="correlation-value ${tone(corr.value)}">${corr.value === null ? '—' : signed(corr.value)}</span><div class="sample">n = ${corr.n}</div>`;
+    const contribution = result.contributions.find(item => item.id === factor.id)?.contribution || 0;
+    const cell = row.querySelector('.influence-cell');
+    cell.textContent = contribution > 0 ? '支持黃金' : contribution < 0 ? '壓抑黃金' : '未設定';
+    cell.className = `influence-cell ${tone(contribution)}`;
+  }
+  drawContributions(result);
+  compareBroker();
+}
+
+function drawContributions(result) {
+  const canvas = $('contribution-chart');
+  if (state.tab !== 'simulation') return;
+  const width = canvas.clientWidth, height = canvas.clientHeight, ratio = Math.min(devicePixelRatio || 1, 2);
+  if (!width) return;
+  canvas.width = width * ratio; canvas.height = height * ratio;
   const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-  
-  const width = canvas.width;
-  const height = canvas.height;
-  
-  // Clear dark theme background
-  ctx.fillStyle = '#0b0f19';
-  ctx.fillRect(0, 0, width, height);
-  
-  // Draw grid lines
-  ctx.strokeStyle = 'rgba(51, 65, 85, 0.15)';
-  ctx.lineWidth = 1;
-  const gridRows = 8;
-  const gridCols = 10;
-  for (let i = 1; i < gridRows; i++) {
-    const y = (height / gridRows) * i;
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(width, y);
-    ctx.stroke();
-  }
-  for (let i = 1; i < gridCols; i++) {
-    const x = (width / gridCols) * i;
-    ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, height);
-    ctx.stroke();
-  }
-  
-  // Define Liquidation pool offsets from center price
-  const poolOffsets = [0.018, 0.008, -0.012, -0.022];
-  const colors = [
-    'rgba(234, 179, 8, ',  // Yellow
-    'rgba(249, 115, 22, ', // Orange
-    'rgba(239, 68, 68, ',  // Red
-    'rgba(59, 130, 246, '  // Blue
-  ];
-  
-  // Draw heat zones
-  poolOffsets.forEach((offset, idx) => {
-    const poolPrice = price * (1 + offset);
-    const percentDiff = (poolPrice - price) / price;
-    const y = height / 2 - (percentDiff / 0.035) * (height / 2);
-    
-    if (y > 0 && y < height) {
-      const grad = ctx.createLinearGradient(0, y, width, y);
-      const alphaBase = 0.35 + Math.random() * 0.2;
-      const color = colors[idx % colors.length];
-      
-      grad.addColorStop(0, `${color}0)`);
-      grad.addColorStop(0.2, `${color}${alphaBase * 0.4})`);
-      grad.addColorStop(0.5, `${color}${alphaBase})`);
-      grad.addColorStop(0.8, `${color}${alphaBase * 0.5})`);
-      grad.addColorStop(1, `${color}0)`);
-      
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, y - 12, width, 24);
-      
-      // Draw details/noise
-      ctx.fillStyle = `${color}0.85)`;
-      for (let j = 0; j < 12; j++) {
-        const hX = Math.random() * width;
-        const hW = 15 + Math.random() * 35;
-        ctx.fillRect(hX, y - 2, hW, 4);
-      }
-    }
+  ctx.scale(ratio, ratio); ctx.clearRect(0, 0, width, height);
+  const ranked = [...result.contributions].sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution));
+  const values = ranked.slice(0, 6).map(item => ({ name: item.name, value: item.contribution }));
+  if (ranked.length > 6) values.push({ name: `其餘 ${ranked.length - 6} 項合計`, value: ranked.slice(6).reduce((sum, item) => sum + item.contribution, 0) });
+  if (result.regime.bias) values.push({ name: result.regime.name, value: result.regime.bias });
+  ctx.font = '11px system-ui'; ctx.fillStyle = '#68746e';
+  if (!values.length) { ctx.fillText('未設定方向', 14, 35); return; }
+  const labelWidth = Math.min(140, width * 0.35), middle = labelWidth + (width - labelWidth) / 2;
+  const max = Math.max(3, ...values.map(item => Math.abs(item.value)));
+  const scale = (width - labelWidth - 40) / (max * 2);
+  ctx.strokeStyle = '#cdd7cf'; ctx.beginPath(); ctx.moveTo(middle, 12); ctx.lineTo(middle, height - 25); ctx.stroke();
+  const rowHeight = Math.min(28, (height - 35) / values.length);
+  values.forEach((item, index) => {
+    const y = 15 + index * rowHeight;
+    ctx.fillStyle = '#68746e'; ctx.fillText(item.name, 0, y + 12, labelWidth - 5);
+    ctx.fillStyle = item.value > 0 ? '#438d77' : '#c8747d';
+    ctx.fillRect(item.value > 0 ? middle : middle + item.value * scale, y + 2, Math.max(1, Math.abs(item.value * scale)), 13);
   });
-  
-  // Draw center price line (neon dashed blue)
-  const priceY = height / 2;
-  ctx.strokeStyle = '#00d2ff';
-  ctx.lineWidth = 1.5;
-  ctx.setLineDash([5, 4]);
-  ctx.beginPath();
-  ctx.moveTo(0, priceY);
-  ctx.lineTo(width, priceY);
-  ctx.stroke();
-  ctx.setLineDash([]);
-  
-  // Price Tag text bubble
-  ctx.fillStyle = '#00d2ff';
-  ctx.fillRect(width - 70, priceY - 10, 70, 20);
-  ctx.fillStyle = '#0b0f19';
-  ctx.font = 'bold 9px monospace';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  const priceStr = state.activeAsset === 'XAUUSD' ? price.toFixed(2) : price.toFixed(1);
-  ctx.fillText(priceStr, width - 35, priceY);
+  ctx.fillStyle = '#68746e'; ctx.fillText('壓抑', labelWidth + 4, height - 3); ctx.fillText('支持', width - 32, height - 3);
 }
 
-// 11. Render Macro Tab Data (Fetches live or falls back)
-async function renderMacro() {
-  const container = document.getElementById('macro-data-container');
-  if (!container) return;
-  
-  container.innerHTML = `
-    <div class="flex flex-col items-center justify-center py-16">
-      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400"></div>
-      <p class="text-xs text-slate-400 mt-4">正在讀取當週財經日曆...</p>
-    </div>
-  `;
-  
-  let eventsList = [...macroCalendar];
-  
-  if (WORKER_URL) {
+function setScenario(scenario) {
+  state.directions = Object.fromEntries(FACTORS.map(f => [f.id, [-1, 1].includes(scenario.directions?.[f.id]) ? scenario.directions[f.id] : 0]));
+  state.regime = REGIMES[scenario.regime] ? scenario.regime : 'normal';
+  state.strength = Math.min(2, Math.max(0.5, Number(scenario.strength) || 1));
+  $('regime').value = state.regime; $('strength').value = state.strength; $('strength-value').value = `${state.strength.toFixed(1)}×`;
+  $('ai-output').hidden = true;
+  renderFactors(); renderAnalysis();
+}
+
+function renderSaved() {
+  $('saved-scenarios').innerHTML = saved.slice(0, 10).map((item, index) => `<div class="saved-item"><button data-load="${index}" class="secondary">${esc(item.name)}</button><button data-delete="${index}" class="icon-button" title="刪除情境" aria-label="刪除${esc(item.name)}"><i data-lucide="x"></i></button></div>`).join('');
+  icons();
+}
+
+async function refreshSnapshot() {
+  if (state.snapshotRunning || document.hidden) return;
+  state.snapshotRunning = true; $('refresh').disabled = true; $('refresh').classList.add('busy');
+  try {
+    const data = await api('/api/snapshot');
+    for (const quote of data.quotes) {
+      if (Number.isFinite(quote.price) || !state.quotes[quote.asset]) state.quotes[quote.asset] = quote;
+      else if (['GOLD', 'SILVER', 'BTC', 'ETH', 'US10Y', 'REAL10Y'].includes(quote.asset)) state.quotes[quote.asset] = { ...state.quotes[quote.asset], refreshFailed: true, reason: quote.reason };
+    }
+    const available = Object.values(state.quotes).filter(q => Number.isFinite(q.price)).length;
+    $('connection-status').textContent = `${available} 項有資料 · ${timestamp(data.fetchedAt)}`;
+  } catch (error) {
+    for (const quote of Object.values(state.quotes)) if (Number.isFinite(quote.price)) quote.refreshFailed = true;
+    $('connection-status').textContent = '行情更新失敗';
+    notice(`無法更新行情：${error.message}；舊資料依來源時間標示。`);
+  } finally {
+    state.snapshotRunning = false; $('refresh').disabled = false; $('refresh').classList.remove('busy');
+    renderQuotes(); renderAnalysis();
+  }
+}
+
+function renderMarkets() {
+  $('market-grid').innerHTML = ASSETS.map(asset => {
+    const q = state.quotes[asset.id], status = quoteState(q);
+    return `<article class="market-item"><h2>${asset.name}</h2><div class="market-price">${fmt(q?.price)}${asset.kind === 'yield' && Number.isFinite(q?.price) ? '%' : ''}</div><p>${asset.unit}${asset.proxy ? ' · TLT ETF 代理' : ''}<br><span class="${tone(q?.changePercent ?? q?.changeBps)}">${esc(quoteChange(q))}</span></p><div class="quote-meta">${esc(q?.source || '待查詢')}<br>${q?.asOf ? esc(timestamp(q.asOf, 'Asia/Taipei', q.precision === 'date')) : esc(q?.reason || '無可用資料')}</div><div class="market-actions"><span class="status-tag">${statusNames[status]}</span><button class="icon-button" data-quote="${asset.id}" title="查詢${asset.name}報價" aria-label="查詢${asset.name}報價" ${state.busy.has(asset.id) ? 'disabled' : ''}><i data-lucide="refresh-cw"></i></button></div></article>`;
+  }).join(''); icons();
+}
+async function loadSingleQuote(id) {
+  if (state.busy.has(id)) return;
+  state.busy.add(id); renderMarkets();
+  try {
+    const quote = await api(`/api/quote?asset=${encodeURIComponent(id)}`);
+    state.quotes[id] = quote;
+    if (quote.status === 'unavailable') notice(quote.reason);
+  } catch (error) { notice(error.message); }
+  finally { state.busy.delete(id); renderQuotes(); }
+}
+
+async function loadNews() {
+  $('news-list').innerHTML = '<div class="empty-state">正在取得來源公告…</div>';
+  try {
+    const data = await api('/api/news'); state.newsLoaded = true;
+    $('news-time').textContent = `擷取 ${timestamp(data.fetchedAt)}`;
+    $('news-list').innerHTML = data.items.map(item => `<article class="news-item"><div class="meta"><div>${esc(item.source)}</div><div>${timestamp(item.publishedAt)}</div></div><a href="${esc(item.url)}" target="_blank" rel="noopener noreferrer">${esc(item.title)}</a></article>`).join('') || '<div class="empty-state">來源未提供有效新聞，未以示意消息替代。</div>';
+    if (data.errors.length) $('news-list').insertAdjacentHTML('beforeend', `<p class="muted">${data.errors.map(esc).join('；')}</p>`);
+  } catch (error) { $('news-list').innerHTML = `<div class="empty-state">${esc(error.message)}</div>`; }
+}
+
+function loadHeatmap() {
+  const container = $('heatmap-wrapper'); container.replaceChildren();
+  const wrapper = document.createElement('div'); wrapper.className = 'tradingview-widget-container';
+  const target = document.createElement('div'); target.className = 'tradingview-widget-container__widget'; target.style.height = '100%'; wrapper.append(target);
+  const script = document.createElement('script'); script.async = true;
+  script.src = $('heatmap-type').value === 'forex' ? 'https://s3.tradingview.com/external-embedding/embed-widget-forex-heat-map.js' : 'https://s3.tradingview.com/external-embedding/embed-widget-crypto-coins-heatmap.js';
+  script.textContent = JSON.stringify({ width: '100%', height: '100%', currencies: ['EUR', 'USD', 'JPY', 'GBP', 'CHF', 'AUD', 'CAD', 'NZD'], dataSource: 'Crypto', blockSize: 'market_cap_calc', blockColor: '24h_close_change|5', locale: 'zh_TW', colorTheme: 'light', isTransparent: true });
+  script.onerror = () => { container.innerHTML = '<div class="empty-state">TradingView 連線失敗</div>'; };
+  wrapper.append(script); container.append(wrapper);
+}
+
+function renderCalendar() {
+  const zone = $('timezone').value;
+  $('calendar-rows').innerHTML = state.calendar.length ? state.calendar.map(event => `<tr><td>${timestamp(event.date, zone)}</td><td>${esc(event.title)}<div class="sample">${event.impact === 'High' ? '高影響' : '中影響'}</div></td><td>${event.date ? marketSessions(event.date).join('／') : '未確認'}</td><td>${esc(event.previous)}</td><td>${esc(event.forecast)}</td><td class="muted">未提供</td></tr>`).join('') : '<tr><td colspan="6" class="empty-state">沒有可顯示的本週事件</td></tr>';
+}
+async function loadCalendar() {
+  $('calendar-status').textContent = '正在更新';
+  try {
+    const data = await api('/api/calendar'); state.calendar = data.events; state.calendarLoaded = true;
+    $('calendar-status').textContent = `第三方日曆 · ${timestamp(data.fetchedAt)}`;
+    renderCalendar();
+  } catch (error) { $('calendar-status').textContent = '日曆取得失敗'; notice(error.message); renderCalendar(); }
+}
+function renderMacro() {
+  const event = MACRO.find(item => item.id === $('macro-event').value);
+  const result = macroSurprise(event.id, $('macro-actual').value, $('macro-forecast').value);
+  $('macro-unit').textContent = `單位：${event.unit}`;
+  $('macro-result').innerHTML = `<h3 class="${result ? tone(result.impact) : ''}">${result ? result.label : '等待公布值與預期值'}</h3><p>${event.above}</p><p>${event.caveat}</p><p>常見公布時間：紐約 ${event.time} · 主要影響美盤，可能延續至下一亞／歐盤。影響觀察：${event.period}。</p>`;
+}
+
+function renderHistory() {
+  const entries = Object.entries(state.history);
+  $('history-list').innerHTML = entries.length ? entries.map(([id, data]) => `<div class="history-entry"><div><strong>${esc(ASSETS.find(a => a.id === id)?.name || id)}</strong><p>${esc(data.source)} · ${esc(data.boundary || 'CSV 收盤日界線尚未驗證')}</p></div><span>${data.bars.length} 筆<br><span class="muted">${data.bars[0]?.date}–${data.bars.at(-1)?.date}</span></span></div>`).join('') : '<div class="empty-state">尚無歷史日資料</div>';
+}
+function renderAudit() {
+  $('audit-rows').innerHTML = ASSETS.map(asset => {
+    const q = state.quotes[asset.id], status = quoteState(q);
+    return `<tr><td>${asset.name}<div class="sample">${asset.unit}</div></td><td>${esc(q?.source || '未連線')}<div class="sample">${esc(q?.symbol || asset.symbol)} · ${esc(q?.note || q?.reason || '')}</div></td><td>${timestamp(q?.asOf, 'Asia/Taipei', q?.precision === 'date')}</td><td>${statusNames[status]}</td></tr>`;
+  }).join('');
+  compareBroker();
+}
+function compareBroker() {
+  const input = $('broker-price').value, gold = state.quotes.GOLD;
+  if (!input || !(Number(input) > 0) || !Number.isFinite(gold?.price)) { $('quote-difference').textContent = '尚未比較'; return; }
+  const difference = Number(input) - gold.price;
+  $('quote-difference').textContent = `cTrader 參考價 − 公開現貨：${signed(difference)} USD（${signed(difference / gold.price * 100)}%）；未連線券商，需比對同時點 bid／ask。${quoteState(gold) !== 'recent' ? '公開行情已過期或時間未知。' : ''}`;
+}
+async function loadHistory() {
+  const id = $('history-asset').value;
+  $('history-status').textContent = '正在取得已收盤日資料';
+  try {
+    const data = await api(`/api/history?asset=${encodeURIComponent(id)}`);
+    state.history[id] = data; renderHistory(); renderAnalysis();
+    $('history-status').textContent = `已取得 ${data.bars.length} 筆`;
+  } catch (error) { $('history-status').textContent = error.message; }
+}
+function download(name, value, type = 'application/json') {
+  const url = URL.createObjectURL(new Blob([type === 'application/json' ? JSON.stringify(value, null, 2) : value], { type }));
+  const anchor = document.createElement('a'); anchor.href = url; anchor.download = name; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function setTab() {
+  const tab = ['simulation', 'markets', 'macro', 'settings'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'simulation';
+  state.tab = tab;
+  $('mobile-summary').hidden = tab !== 'simulation';
+  document.querySelectorAll('.view').forEach(view => { view.hidden = view.id !== `view-${tab}`; });
+  document.querySelectorAll('.nav-link').forEach(link => { link.classList.toggle('active', link.hash === `#${tab}`); if (link.hash === `#${tab}`) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current'); });
+  if (tab === 'simulation') renderAnalysis();
+  if (tab === 'markets') { renderMarkets(); if (!state.newsLoaded) loadNews(); }
+  if (tab === 'macro' && !state.calendarLoaded) loadCalendar();
+  if (tab === 'settings') { renderHistory(); renderAudit(); }
+}
+
+function setup() {
+  $('regime').innerHTML = Object.entries(REGIMES).map(([id, item]) => `<option value="${id}">${item.name}</option>`).join('');
+  $('history-asset').innerHTML = ASSETS.map(item => `<option value="${item.id}">${item.name} / ${item.symbol}</option>`).join('');
+  $('macro-event').innerHTML = MACRO.map(item => `<option value="${item.id}">${item.name}</option>`).join('');
+  $('macro-guide').innerHTML = MACRO.map(item => `<article><div><h3>${item.name}</h3><a href="${esc(item.source)}" target="_blank" rel="noopener">官方來源與發布時間</a></div><div><p>${item.above}</p><p>${item.caveat} 觀察期間：${item.period}。</p></div></article>`).join('');
+  renderFactors(); renderSaved(); renderMacro(); renderQuotes(); setTab(); icons();
+  $('factor-rows').addEventListener('change', event => {
+    const row = event.target.closest('[data-factor]'); if (!row) return;
+    state.directions[row.dataset.factor] = Number(event.target.value); $('ai-output').hidden = true; renderAnalysis();
+  });
+  for (const name of ['regime', 'strength', 'window', 'horizon']) $(name).addEventListener('input', () => {
+    state[name] = name === 'regime' ? $(name).value : Number($(name).value);
+    $('strength-value').value = `${state.strength.toFixed(1)}×`; $('ai-output').hidden = true; renderAnalysis();
+  });
+  $('preset').addEventListener('change', () => {
+    const presets = { dovish: { directions: { DXY: -1, REAL10Y: -1, SILVER: 1 }, regime: 'normal' }, hawkish: { directions: { DXY: 1, REAL10Y: 1 }, regime: 'hawkish' }, haven: { directions: { DXY: 1, SPX: -1 }, regime: 'haven' }, liquidity: { directions: { WTI: -1, SPX: -1, DXY: 1, BTC: -1 }, regime: 'liquidity' } };
+    if (presets[$('preset').value]) setScenario(presets[$('preset').value]);
+    $('preset').value = '';
+  });
+  $('reset-scenario').addEventListener('click', () => setScenario({}));
+  $('mobile-summary').addEventListener('click', () => $('scenario-summary').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' }));
+  $('save-scenario').addEventListener('click', () => {
+    const name = prompt('情境名稱'); if (!name?.trim()) return;
+    saved = [{ name: name.trim().slice(0, 40), directions: { ...state.directions }, regime: state.regime, strength: state.strength }, ...saved].slice(0, 10); localWrite('paw-gold-scenarios-v2', saved); renderSaved();
+  });
+  $('saved-scenarios').addEventListener('click', event => {
+    const load = event.target.closest('[data-load]'), remove = event.target.closest('[data-delete]');
+    if (load) setScenario(saved[Number(load.dataset.load)]);
+    if (remove) { saved.splice(Number(remove.dataset.delete), 1); localWrite('paw-gold-scenarios-v2', saved); renderSaved(); }
+  });
+  $('export-scenario').addEventListener('click', () => download('gold-scenario.json', { ...Object.fromEntries(['directions', 'regime', 'strength', 'window', 'horizon'].map(key => [key, state[key]])), study: state.study, quotes: state.quotes, exportedAt: new Date().toISOString(), warning: '未校準假設與歷史條件頻率，不是未來預測' }));
+  $('refresh').addEventListener('click', refreshSnapshot);
+  $('market-grid').addEventListener('click', event => { const button = event.target.closest('[data-quote]'); if (button) loadSingleQuote(button.dataset.quote); });
+  $('refresh-news').addEventListener('click', () => busy($('refresh-news'), loadNews));
+  $('refresh-calendar').addEventListener('click', () => busy($('refresh-calendar'), loadCalendar));
+  $('timezone').addEventListener('change', renderCalendar);
+  $('load-heatmap').addEventListener('click', loadHeatmap);
+  $('heatmap-type').addEventListener('change', () => { $('heatmap-wrapper').innerHTML = '<div class="empty-state">TradingView 尚未連線</div>'; });
+  for (const id of ['macro-event', 'macro-actual', 'macro-forecast']) $(id).addEventListener('input', renderMacro);
+  $('load-history').addEventListener('click', () => busy($('load-history'), loadHistory));
+  $('csv-import').addEventListener('change', async event => {
+    const file = event.target.files[0]; if (!file) return;
     try {
-      const response = await fetch(`${WORKER_URL}/macro`);
-      if (response.ok) {
-        const liveEvents = await response.json();
-        if (Array.isArray(liveEvents) && liveEvents.length > 0) {
-          eventsList = liveEvents;
-          console.log('[Live Data] Loaded macroeconomic calendar from Worker');
-        }
-      }
-    } catch (err) {
-      console.warn('[Fallback] Failed to fetch macro calendar from Worker, using mock data:', err);
-    }
-  }
-  
-  let calendarHtml = '';
-  eventsList.forEach(item => {
-    let impactBadge = '';
-    if (item.impact === 'high') {
-      impactBadge = '<span class="px-2 py-0.5 text-[10px] font-bold rounded badge-high">高重要度 (High)</span>';
-    } else if (item.impact === 'medium') {
-      impactBadge = '<span class="px-2 py-0.5 text-[10px] font-bold rounded badge-medium">中重要度 (Med)</span>';
-    } else {
-      impactBadge = '<span class="px-2 py-0.5 text-[10px] font-bold rounded badge-low">低重要度 (Low)</span>';
-    }
-    
-    calendarHtml += `
-      <div class="p-4 bg-slate-800/80 rounded-2xl border border-slate-700/80 shadow-md">
-        <div class="flex justify-between items-center mb-2">
-          <span class="text-xs text-slate-400 font-medium">${item.time} (${item.currency})</span>
-          ${impactBadge}
-        </div>
-        <h4 class="text-sm font-semibold text-white mb-3">${item.event}</h4>
-        <div class="grid grid-cols-2 gap-4 text-xs">
-          <div class="bg-slate-900/40 p-2 rounded-lg">
-            <span class="text-slate-400 block mb-0.5">預測值 (Forecast)</span>
-            <span class="text-white font-medium">${item.forecast}</span>
-          </div>
-          <div class="bg-slate-900/40 p-2 rounded-lg">
-            <span class="text-slate-400 block mb-0.5">前值 (Previous)</span>
-            <span class="text-white font-medium">${item.previous}</span>
-          </div>
-        </div>
-      </div>
-    `;
+      if (file.size > 8 * 1024 * 1024) throw new Error('CSV 上限為 8 MB。');
+      const imported = parseHistoryCsv(await file.text());
+      // Replace as one dataset to avoid silently mixing incompatible imports.
+      state.history = imported; $('history-status').textContent = `已匯入 ${file.name}`; renderHistory(); renderAnalysis(); notice('CSV 已在本機載入；請確認所有品項為相同日收盤定義。');
+    } catch (error) { notice(error.message); }
+    event.target.value = '';
   });
-  
-  container.innerHTML = `
-    <div class="mb-4 text-center">
-      <h3 class="text-lg font-semibold text-white">📅 宏觀財經日曆 (當週)</h3>
-      <p class="text-xs text-slate-400 mt-1">數據來源：ForexFactory (重大紅標數據過濾)</p>
-    </div>
-    
-    <div class="mb-4 grid grid-cols-2 gap-3">
-      <div class="p-3 bg-slate-800/40 rounded-xl border border-slate-700/50 flex justify-between items-center">
-        <span class="text-xs text-slate-400">💵 美元指數 (DXY)</span>
-        <span class="text-xs font-bold text-neon-red">105.82 (-0.12%)</span>
-      </div>
-      <div class="p-3 bg-slate-800/40 rounded-xl border border-slate-700/50 flex justify-between items-center">
-        <span class="text-xs text-slate-400">🛢️ 美原油 (USOIL)</span>
-        <span class="text-xs font-bold text-neon-green">$81.45 (+0.42%)</span>
-      </div>
-    </div>
-
-    <div class="space-y-3">
-      ${calendarHtml}
-    </div>
-  `;
-}
-
-// 12. Setup Event Listeners (Assets & Navigation Tabs)
-function setupEventListeners() {
-  // Asset Selectors
-  const assetButtons = document.querySelectorAll('.asset-btn');
-  assetButtons.forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      const selected = e.currentTarget.dataset.asset;
-      if (selected === state.activeAsset) return;
-      
-      state.activeAsset = selected;
-      
-      assetButtons.forEach(b => {
-        b.classList.remove('text-yellow-400', 'font-bold', 'border-b-2', 'border-yellow-400');
-        b.classList.add('text-slate-400');
-      });
-      e.currentTarget.classList.remove('text-slate-400');
-      e.currentTarget.classList.add('text-yellow-400', 'font-bold', 'border-b-2', 'border-yellow-400');
-      
-      // Update Tab Views based on active tab
-      if (state.activeTab === 'charts') {
-        await updateMarketUI();
-        fetchWorkerData();
-        loadHeatmap();
-      } else if (state.activeTab === 'sentiment') {
-        renderSentiment();
-      }
+  $('csv-template').addEventListener('click', () => download('history-format.csv', 'date,asset,close\n', 'text/csv;charset=utf-8'));
+  $('clear-history').addEventListener('click', () => { state.history = {}; $('history-status').textContent = ''; renderHistory(); renderAnalysis(); });
+  $('broker-price').addEventListener('input', compareBroker);
+  $('ai-form').addEventListener('submit', event => {
+    event.preventDefault();
+    busy($('ai-submit'), async () => {
+      $('ai-output').hidden = false; $('ai-output').textContent = '正在分析；僅傳送所選情境與研究問題，不傳送 CSV。';
+      try {
+        const data = await api('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider: $('ai-provider').value, directions: state.directions, regime: state.regime, strength: state.strength, question: $('ai-question').value }) });
+        $('ai-output').textContent = `${data.text}\n\n${data.provider} / ${data.model} · ${timestamp(data.generatedAt)}\n${data.evidence}\n${data.disclaimer}`;
+      } catch (error) { $('ai-output').textContent = error.message; }
     });
   });
-
-  // Tab Selectors
-  const tabButtons = document.querySelectorAll('.tab-btn');
-  const tabPanes = document.querySelectorAll('.tab-pane');
-  
-  tabButtons.forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      const selectedTab = e.currentTarget.dataset.tab;
-      if (selectedTab === state.activeTab) return;
-      
-      state.activeTab = selectedTab;
-      
-      tabButtons.forEach(b => {
-        b.classList.remove('text-blue-400');
-        b.classList.add('text-slate-400');
-      });
-      e.currentTarget.classList.remove('text-slate-400');
-      e.currentTarget.classList.add('text-blue-400');
-      
-      tabPanes.forEach(pane => {
-        pane.classList.remove('active', 'block');
-        pane.classList.add('hidden');
-        if (pane.id === `tab-${selectedTab}`) {
-          pane.classList.remove('hidden');
-          setTimeout(() => {
-            pane.classList.add('active');
-          }, 50);
-        }
-      });
-      
-      if (selectedTab === 'charts') {
-        await updateMarketUI();
-        fetchWorkerData();
-        loadHeatmap();
-      } else if (selectedTab === 'sentiment') {
-        renderSentiment();
-      } else if (selectedTab === 'macro') {
-        renderMacro();
-      }
+  for (const id of ['settings-token', 'analysis-token']) $(id).addEventListener('input', () => {
+    adminToken = $(id).value;
+    $('settings-token').value = adminToken; $('analysis-token').value = adminToken;
+  });
+  $('copy-admin-token').addEventListener('click', () => keyAction($('copy-admin-token'), async () => {
+    const data = await api('/api/local-admin-token');
+    await navigator.clipboard.writeText(data.token);
+    $('gemini-settings-result').textContent = '管理存取碼已複製。它可管理線上 AI 額度，請勿分享。';
+  }));
+  $('gemini-settings').addEventListener('submit', event => {
+    event.preventDefault();
+    keyAction($('gemini-save'), async () => {
+      await api('/api/settings/gemini', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey: $('gemini-api-key').value, model: $('gemini-model').value }) });
+      $('gemini-api-key').value = '';
+      await refreshConfig();
+      $('gemini-settings-result').textContent = 'Key 已加密保存在後端；關閉或重新整理不會清除。尚未進行連線測試。';
     });
   });
+  $('gemini-models').addEventListener('click', () => keyAction($('gemini-models'), async () => {
+    const data = await api('/api/settings/gemini/models', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey: $('gemini-api-key').value }) });
+    $('gemini-model-list').innerHTML = data.models.map(model => `<option value="${esc(model.id)}">${esc(model.name)}</option>`).join('');
+    if (!$('gemini-model').value && data.models.length) $('gemini-model').value = (data.models.find(model => model.id === 'gemini-flash-latest') || data.models.find(model => /flash/.test(model.id)) || data.models[0]).id;
+    $('gemini-settings-result').textContent = `取得 ${data.models.length} 個文字生成模型；模型選擇與額度依 Google 帳戶權限。尚未儲存變更。`;
+  }));
+  $('gemini-test').addEventListener('click', () => keyAction($('gemini-test'), async () => {
+    const data = await api('/api/settings/gemini/test', { method: 'POST' });
+    $('gemini-settings-result').textContent = `連線成功 · ${data.model} · ${timestamp(data.testedAt)}`;
+  }));
+  $('gemini-delete').addEventListener('click', () => {
+    if (!confirm('刪除此系統保存在後端的 Gemini Key？Google 的原始 Key 不會被撤銷。')) return;
+    keyAction($('gemini-delete'), async () => {
+      await api('/api/settings/gemini', { method: 'DELETE' });
+      $('gemini-api-key').value = ''; $('gemini-model').value = '';
+      await refreshConfig();
+      $('gemini-settings-result').textContent = '本系統保存的 Key 已刪除，後續分析不再使用它。已送出的請求不受影響。';
+    });
+  });
+  window.addEventListener('hashchange', setTab);
+  window.addEventListener('resize', () => drawContributions(scenarioScore(state.directions, state.regime, state.strength)));
+  document.addEventListener('visibilitychange', () => { renderQuotes(); if (!document.hidden) refreshSnapshot(); });
+  refreshConfig().catch(error => { $('ai-status').textContent = '連線設定取得失敗'; notice(error.message); });
+  refreshSnapshot();
+  setInterval(refreshSnapshot, 60000);
+  setInterval(renderQuotes, 15000);
+  if ('serviceWorker' in navigator && !['localhost', '127.0.0.1'].includes(location.hostname)) navigator.serviceWorker.register('./sw.js').catch(() => notice('離線快取無法啟用；線上功能仍可使用。'));
 }
 
-// 13. Register Service Worker for PWA
-function registerServiceWorker() {
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js')
-      .then((reg) => console.log('[Service Worker] Registered successfully:', reg.scope))
-      .catch((err) => console.error('[Service Worker] Registration failed:', err));
+try {
+  const response = await fetch(new URL('./runtime-config.json', import.meta.url), { cache: 'no-store' });
+  if (!response.ok) throw new Error('Runtime configuration unavailable');
+  const config = await response.json();
+  if (config.apiBase) {
+    const url = new URL(config.apiBase);
+    if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw new Error('Invalid API origin');
+    apiBase = url.origin;
   }
-}
+} catch { if (location.hostname.endsWith('github.io')) notice('未取得後端連線設定，請確認 GitHub Pages 已透過新版建置流程發布。'); }
+setup();

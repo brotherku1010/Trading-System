@@ -1,177 +1,109 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<html lang="zh-Hant">
 <head>
   <meta charset="UTF-8">
-  <!-- Ensure mobile device dimensions fit perfectly without scaling or scrolling -->
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>PAW 交易軟體儀表板</title>
-  
-  <!-- PWA Support Meta Tags -->
-  <meta name="theme-color" content="#0b0f19">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#202522">
+  <meta name="description" content="黃金跨資產情境、歷史相關性與美國總經事件研究">
+  <title>PAW | 黃金情境研究</title>
+  <link rel="icon" href="icon-192.png">
   <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="manifest" href="manifest.json">
-  
-  <!-- CSS Stylesheets -->
-  <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="app.css">
-  
-  <!-- TradingView Library -->
-  <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
 </head>
-<body class="bg-slate-950 text-slate-100 antialiased select-none">
-
-  <!-- Main dynamic height wrapper (100dvh) -->
-  <div class="h-dynamic-screen flex flex-col justify-between overflow-hidden">
-    
-    <!-- 1. Top Bar: Ticker (Jin10/Blocktempo News) -->
-    <div class="h-8 bg-red-950/80 border-b border-red-900/40 text-xs flex items-center marquee-container font-mono shadow-md backdrop-blur-md">
-      <div id="marquee-content" class="marquee-content text-red-200">
-        <!-- JS will dynamically populate and duplicate this content for smooth looping -->
+<body>
+  <header class="topbar">
+    <a class="brand" href="#simulation"><img src="icon-192.png" alt="" width="30" height="30"><span>PAW <b>GOLD LAB</b></span></a>
+    <span class="header-caption">跨資產研究工作台</span>
+    <div class="header-right"><span id="connection-status" role="status">尚未更新</span><button id="refresh" class="icon-button" title="重新整理行情" aria-label="重新整理行情"><i data-lucide="refresh-cw"></i></button></div>
+  </header>
+  <div class="quote-band" id="quote-strip" aria-label="行情摘要"></div>
+  <nav class="navigation" aria-label="主要頁面">
+    <a href="#simulation" class="nav-link active"><i data-lucide="git-compare-arrows"></i>情境模擬</a>
+    <a href="#markets" class="nav-link"><i data-lucide="chart-no-axes-combined"></i>行情與情報</a>
+    <a href="#macro" class="nav-link"><i data-lucide="calendar-days"></i>總經事件</a>
+    <a href="#settings" class="nav-link"><i data-lucide="database"></i>資料與連線</a>
+  </nav>
+  <main>
+    <div id="notice" class="notice" role="status" hidden></div>
+    <section id="view-simulation" class="view">
+      <div class="page-heading"><div><div class="eyebrow">SCENARIO / XAUUSD</div><h1>黃金情境模擬</h1></div><div class="heading-actions"><select id="preset" aria-label="預設情境"><option value="">選擇情境</option><option value="dovish">美元轉弱／利率下行</option><option value="hawkish">美元走強／利率上行</option><option value="haven">美元與黃金同漲</option><option value="liquidity">油價下跌／現金為王</option></select><button id="reset-scenario" class="icon-button" title="清除情境" aria-label="清除情境"><i data-lucide="rotate-ccw"></i></button><button id="save-scenario" class="icon-button" title="儲存情境" aria-label="儲存情境"><i data-lucide="bookmark-plus"></i></button><button id="export-scenario" class="icon-button" title="匯出情境與統計" aria-label="匯出情境與統計"><i data-lucide="download"></i></button></div></div>
+      <div class="scenario-settings">
+        <label>市場環境<select id="regime"></select></label>
+        <label>歷史視窗<select id="window"><option value="60">最近 60 筆</option><option value="120">最近 120 筆</option><option value="252" selected>最近 252 筆</option><option value="756">最近 756 筆</option></select></label>
+        <label>後續期間<select id="horizon"><option value="1">後 1 個黃金交易日</option><option value="5">後 5 個黃金交易日</option></select></label>
+        <label class="strength-label">假設強度 <output id="strength-value">1.0×</output><input id="strength" type="range" min="0.5" max="2" step="0.1" value="1"></label>
       </div>
-    </div>
-    
-    <!-- 2. Header Asset Menu: Switch commodities -->
-    <div class="h-12 bg-slate-900/90 border-b border-slate-800/80 flex justify-around items-center px-4 backdrop-blur-md shadow-sm z-10">
-      <button data-asset="XAUUSD" class="asset-btn text-yellow-400 font-bold border-b-2 border-yellow-400 pb-1 px-3 text-sm transition-all focus:outline-none flex items-center gap-1.5">
-        <span>🥇</span> <span>黃金 (Gold)</span>
-      </button>
-      <button data-asset="BTCUSD" class="asset-btn text-slate-400 pb-1 px-3 text-sm transition-all focus:outline-none flex items-center gap-1.5">
-        <span>🪙</span> <span>BTC</span>
-      </button>
-      <button data-asset="ETHUSD" class="asset-btn text-slate-400 pb-1 px-3 text-sm transition-all focus:outline-none flex items-center gap-1.5">
-        <span>💎</span> <span>ETH</span>
-      </button>
-    </div>
-    
-    <!-- 3. Main Views Container (Holds the 3 Tabs) -->
-    <main class="flex-1 w-full relative overflow-hidden bg-slate-950">
-      
-      <!-- Tab 1: Market Intelligence (行情 & 情報) -->
-      <section id="tab-charts" class="tab-pane active w-full h-full overflow-y-auto no-scrollbar p-4 pb-20 flex flex-col space-y-4">
-        
-        <!-- Asset Spot Price & Market Status Grid -->
-        <div class="grid grid-cols-2 gap-3">
-          <!-- Price Card -->
-          <div class="bg-slate-900/80 p-4 rounded-2xl border border-slate-800/80 shadow-md space-y-1.5 flex flex-col justify-center">
-            <div class="flex justify-between items-center text-xs text-slate-400">
-              <span id="active-asset-name">🥇 黃金 Spot</span>
-              <span id="price-change-badge" class="px-2 py-0.5 rounded font-bold text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">+0.00%</span>
-            </div>
-            <div class="text-2xl font-bold font-mono tracking-tight text-white py-1" id="spot-price-display">$0.00</div>
-            <div class="flex justify-between text-[10px] text-slate-500">
-              <span>H: <span id="price-high" class="font-mono text-slate-400">$0.00</span></span>
-              <span>L: <span id="price-low" class="font-mono text-slate-400">$0.00</span></span>
-            </div>
-          </div>
-
-          <!-- Market Intelligence Status Card -->
-          <div class="bg-slate-900/80 p-4 rounded-2xl border border-slate-800/80 shadow-md space-y-1.5 flex flex-col justify-center text-xs text-slate-300">
-            <div class="flex justify-between items-center text-slate-400 text-[10px] mb-0.5">
-              <span>市場狀態判斷</span>
-              <span class="text-neon-blue font-bold">LIVE</span>
-            </div>
-            <div class="flex justify-between">
-              <span class="text-slate-400">RSI (14):</span>
-              <span class="font-mono font-bold" id="status-rsi">--</span>
-            </div>
-            <div class="flex justify-between">
-              <span class="text-slate-400">MACD (12,26):</span>
-              <span class="font-bold" id="status-macd">--</span>
-            </div>
-            <div class="flex justify-between">
-              <span class="text-slate-400">當前趨勢:</span>
-              <span class="font-bold text-yellow-400" id="status-trend">--</span>
-            </div>
-          </div>
+      <div class="workspace-grid">
+        <div class="factor-section">
+          <div class="section-heading"><h2>驅動因子</h2><span class="muted" id="selected-count">0 項已設定</span></div>
+          <div class="table-scroll"><table class="factor-table"><thead><tr><th scope="col">市場／品項</th><th scope="col">假設方向</th><th scope="col">與黃金相關 <span title="同期間報酬 Pearson 相關；殖利率使用基點變化">r</span></th><th scope="col">影響傾向</th></tr></thead><tbody id="factor-rows"></tbody></table></div>
+          <div class="table-footnote">相關係數使用日報酬，不使用價格水準；— 代表缺值或少於 30 筆。殖利率方向以基點變化衡量。</div>
+          <div class="section-heading lower"><h2>情境貢獻</h2><span class="muted">假設值，非價格預測</span></div>
+          <canvas id="contribution-chart" aria-label="情境因子貢獻圖" role="img"></canvas>
+          <div class="saved-row" id="saved-scenarios"></div>
         </div>
-
-        <!-- Fear & Greed Index Card -->
-        <div class="bg-slate-900/80 p-4 rounded-2xl border border-slate-800/80 shadow-md flex justify-between items-center">
-          <div class="space-y-1">
-            <h4 class="text-xs text-slate-400">恐懼與貪婪指數 (Fear & Greed)</h4>
-            <div class="flex items-baseline gap-2">
-              <span class="text-xl font-bold font-mono text-white" id="fng-value">--</span>
-              <span class="text-xs font-bold text-emerald-400" id="fng-class">--</span>
-            </div>
-          </div>
-          <!-- Gauge Mini Bar -->
-          <div class="w-32 bg-slate-800 h-2.5 rounded-full overflow-hidden border border-slate-700">
-            <div id="fng-bar-fill" class="h-full bg-gradient-to-r from-red-500 via-yellow-400 to-emerald-400 transition-all duration-500" style="width: 0%"></div>
-          </div>
-        </div>
-
-        <!-- Rumors & Whispers Section -->
-        <div class="bg-slate-900/80 p-4 rounded-2xl border border-slate-800/80 shadow-md space-y-3">
-          <div class="flex justify-between items-center border-b border-slate-800 pb-2">
-            <h3 class="text-xs font-bold text-red-400 flex items-center gap-1.5">
-              <span>⚠️</span> 第一手即時情報 (包含未查證傳言)
-            </h3>
-            <span class="animate-pulse flex h-2 w-2 relative">
-              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-              <span class="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
-            </span>
-          </div>
-          
-          <!-- Rumors Container -->
-          <div class="space-y-3" id="rumors-container">
-            <!-- Dynamic elements loaded via JS -->
-          </div>
-        </div>
-
-        <!-- Heatmap Section -->
-        <div class="bg-slate-900/80 p-4 rounded-2xl border border-slate-800/80 shadow-md flex flex-col flex-1 min-h-[300px]">
-          <div class="flex justify-between items-center border-b border-slate-800 pb-2 mb-3">
-            <h3 class="text-xs font-bold text-white flex items-center gap-1.5">
-              <span>🔥</span> 即時板塊熱力圖 (Heatmap)
-            </h3>
-            <span class="text-[10px] text-slate-500">TradingView 提供</span>
-          </div>
-          <div class="flex-1 w-full rounded-xl overflow-hidden relative" id="heatmap-wrapper">
-            <!-- Dynamic heatmap loaded via JS -->
-          </div>
-        </div>
-
-      </section>
-      
-      <!-- Tab 2: Sentiment (籌碼) - Scrollable list -->
-      <section id="tab-sentiment" class="tab-pane hidden w-full h-full overflow-y-auto no-scrollbar p-4 pb-20">
-        <div id="sentiment-data-container" class="max-w-md mx-auto space-y-4">
-          <!-- Rendered dynamically by app.js -->
-        </div>
-      </section>
-      
-      <!-- Tab 3: Macro (宏觀) - Scrollable list -->
-      <section id="tab-macro" class="tab-pane hidden w-full h-full overflow-y-auto no-scrollbar p-4 pb-20">
-        <div id="macro-data-container" class="max-w-md mx-auto space-y-4">
-          <!-- Rendered dynamically by app.js -->
-        </div>
-      </section>
-      
-    </main>
-    
-    <!-- 4. Bottom Navigation Menu -->
-    <nav class="h-16 bg-slate-900/95 border-t border-slate-800/90 flex justify-around items-center px-4 pb-safe shadow-2xl z-25 backdrop-blur-xl">
-      <button data-tab="charts" class="tab-btn text-blue-400 flex flex-col items-center justify-center w-20 py-2 focus:outline-none active:scale-95 transition-transform">
-        <span class="text-xl mb-0.5">📊</span>
-        <span class="text-[10px] font-semibold tracking-wider">行情</span>
-      </button>
-      
-      <button data-tab="sentiment" class="tab-btn text-slate-400 flex flex-col items-center justify-center w-20 py-2 focus:outline-none active:scale-95 transition-transform">
-        <span class="text-xl mb-0.5">🔥</span>
-        <span class="text-[10px] font-semibold tracking-wider">籌碼</span>
-      </button>
-      
-      <button data-tab="macro" class="tab-btn text-slate-400 flex flex-col items-center justify-center w-20 py-2 focus:outline-none active:scale-95 transition-transform">
-        <span class="text-xl mb-0.5">📅</span>
-        <span class="text-[10px] font-semibold tracking-wider">宏觀</span>
-      </button>
-    </nav>
-    
-  </div>
-
-  <!-- Main JavaScript File -->
-  <script src="app.js"></script>
+        <aside class="result-panel" id="scenario-summary" aria-live="polite">
+          <div class="result-header"><span>黃金方向研判</span><span class="tag">假設情境</span></div>
+          <h2 id="scenario-label">方向分歧</h2><p id="regime-note" class="muted"></p>
+          <div class="balance-track"><div id="score-marker"></div></div><div class="balance-labels"><span>偏空</span><span>分歧</span><span>偏多</span></div>
+          <div class="result-divider"><h3>歷史條件頻率</h3><span class="muted" id="sample-count">0 筆相符</span></div>
+          <div id="study-result"></div>
+          <div class="result-divider"><h3>價格觀察區間</h3><span class="muted">日收盤</span></div>
+          <div id="technical-result"></div>
+          <div class="result-divider"><h3>反向條件與風險</h3></div><ul id="scenario-risks" class="risk-list"></ul>
+          <a href="#settings" class="text-link">歷史資料與來源狀態 <i data-lucide="arrow-up-right"></i></a>
+        </aside>
+      </div>
+      <div class="research-note"><i data-lucide="info"></i><span>情境權重為未校準的研究假設；歷史條件頻率不是未來勝率，相關性不等於因果。不構成個人化投資建議。</span></div>
+      <div class="section-heading lower"><h2>AI 情境解讀</h2><span id="ai-status" class="muted">未設定服務</span></div>
+      <form id="ai-form" class="ai-form"><label>服務<select id="ai-provider"><option value="openai">OpenAI</option><option value="gemini">Gemini</option></select></label><label>分析存取碼<input id="analysis-token" type="password" autocomplete="off"></label><label class="question-label">研究問題<input id="ai-question" type="text" maxlength="2000" placeholder="例如：避險買盤何時可能蓋過美元壓力？"></label><button id="ai-submit" type="submit" class="primary"><i data-lucide="sparkles"></i>分析</button></form>
+      <div id="ai-output" class="ai-output" role="status" hidden></div>
+    </section>
+    <section id="view-markets" class="view" hidden>
+      <div class="page-heading"><div><div class="eyebrow">MARKET MONITOR</div><h1>行情與情報</h1></div><span class="muted">輪詢資料，非逐筆報價</span></div>
+      <div class="market-grid" id="market-grid"></div>
+      <div class="section-heading lower"><h2>市場熱力圖</h2><select id="heatmap-type" aria-label="熱力圖類型"><option value="forex">外匯</option><option value="crypto">加密貨幣</option></select><button id="load-heatmap" class="secondary"><i data-lucide="external-link"></i>連線 TradingView</button></div>
+      <div id="heatmap-wrapper"><div class="empty-state">TradingView 尚未連線</div></div>
+      <div class="research-note"><i data-lucide="circle-alert"></i><span>熱力圖為外部資料，不是清算地圖；尚未接入真實委託簿或清算服務，不顯示多空持倉比。</span></div>
+      <div class="section-heading lower"><h2>官方公告與媒體</h2><span id="news-time" class="muted"></span><button id="refresh-news" class="icon-button" title="更新新聞" aria-label="更新新聞"><i data-lucide="refresh-cw"></i></button></div>
+      <div id="news-list" class="news-list"><div class="empty-state">尚未載入</div></div>
+    </section>
+    <section id="view-macro" class="view" hidden>
+      <div class="page-heading"><div><div class="eyebrow">ECONOMIC EVENTS / USD</div><h1>美國總經事件</h1></div><label>顯示時區<select id="timezone"><option value="Asia/Taipei">台北</option><option value="America/New_York">紐約</option><option value="UTC">UTC</option></select></label></div>
+      <div class="section-heading"><h2>本週事件</h2><span id="calendar-status" class="muted">尚未載入</span><button id="refresh-calendar" class="icon-button" title="更新日曆" aria-label="更新日曆"><i data-lucide="refresh-cw"></i></button></div>
+      <div class="table-scroll"><table class="calendar-table"><thead><tr><th>時間</th><th>美國事件</th><th>盤別</th><th>前值</th><th>預期</th><th>公布值</th></tr></thead><tbody id="calendar-rows"></tbody></table></div>
+      <div class="section-heading lower"><h2>數據意外情境</h2><span class="muted">公布值 vs 市場預期</span></div>
+      <div class="macro-inputs"><label>數據項目<select id="macro-event"></select></label><label>市場預期<input id="macro-forecast" type="number" step="any"></label><label>公布值<input id="macro-actual" type="number" step="any"></label><span id="macro-unit" class="muted"></span></div>
+      <div id="macro-result" class="macro-result"></div>
+      <div id="macro-guide" class="macro-guide"></div>
+      <div class="research-note"><i data-lucide="clock-3"></i><span>盤別為東京 09–18、倫敦 08–17、紐約 08–17 的近似交易時段，可重疊並依夏令時間換算。影響期間為研究參考，不是回測結論。</span></div>
+    </section>
+    <section id="view-settings" class="view" hidden>
+      <div class="page-heading"><div><div class="eyebrow">DATA QUALITY</div><h1>資料與連線</h1></div><button id="clear-history" class="secondary"><i data-lucide="trash-2"></i>清除歷史資料</button></div>
+      <div class="section-heading"><h2>歷史日資料</h2><div class="heading-actions"><label class="file-button secondary"><i data-lucide="upload"></i>匯入 CSV<input id="csv-import" type="file" accept=".csv,text/csv" hidden></label><button id="csv-template" class="icon-button" title="下載 CSV 格式" aria-label="下載 CSV 格式"><i data-lucide="file-down"></i></button></div></div>
+      <div class="history-toolbar"><select id="history-asset" aria-label="歷史資料品項"></select><button id="load-history" class="secondary"><i data-lucide="database-backup"></i>取得日資料</button><span id="history-status" class="muted"></span></div>
+      <div id="history-list" class="history-list"></div>
+      <div class="research-note"><i data-lucide="info"></i><span>歷史資料僅保留在此分頁記憶體，CSV 不上傳 AI。跨來源收盤日界線可能不同；未校準日界線的統計僅供探索。</span></div>
+      <div class="section-heading lower"><h2>行情來源稽核</h2></div>
+      <div class="quote-comparison"><label>cTrader XAUUSD 合約參考價<input id="broker-price" type="number" min="0.01" step="0.01" placeholder="平台目前報價"></label><span id="quote-difference" class="muted">尚未比較</span></div>
+      <div class="table-scroll"><table class="audit-table"><thead><tr><th>品項</th><th>來源／商品</th><th>時間（台北）</th><th>狀態</th></tr></thead><tbody id="audit-rows"></tbody></table></div>
+      <div class="section-heading lower"><h2>伺服器連線</h2></div><div id="provider-status" class="provider-status"></div>
+      <div class="section-heading lower"><h2>Gemini Key</h2><span id="gemini-key-status" class="muted" role="status">正在確認儲存狀態</span><button id="copy-admin-token" type="button" class="secondary" hidden><i data-lucide="copy"></i>複製管理存取碼</button></div>
+      <form id="gemini-settings" class="credential-form">
+        <label id="admin-token-label">管理存取碼<input id="settings-token" type="password" autocomplete="off"></label>
+        <label class="key-label">Gemini API Key<input id="gemini-api-key" type="password" autocomplete="off" spellcheck="false" maxlength="256" placeholder="首次輸入或替換 Key"></label>
+        <label>模型<input id="gemini-model" type="text" list="gemini-model-list" autocomplete="off" maxlength="128" placeholder="選擇可用模型"><datalist id="gemini-model-list"></datalist></label>
+        <div class="credential-actions"><button id="gemini-models" type="button" class="secondary"><i data-lucide="list"></i>可用模型</button><button id="gemini-save" type="submit" class="primary"><i data-lucide="save"></i>儲存</button><button id="gemini-test" type="button" class="secondary"><i data-lucide="plug-zap"></i>連線測試</button><button id="gemini-delete" type="button" class="secondary"><i data-lucide="trash-2"></i>刪除 Key</button></div>
+      </form><p id="gemini-settings-result" class="credential-result" role="status"></p>
+      <div class="research-note"><i data-lucide="lock-keyhole"></i><span>Key 加密保留至主動刪除，不會回傳完整 Key。連線測試會向 Google 發送一次小型請求，可能計入額度；刪除僅移除本系統保存的 Key，不撤銷 Google 的 Key。</span></div>
+      <div class="research-note"><i data-lucide="shield-check"></i><span>API Key 僅從伺服器端讀取，不寫入 GitHub 或 PWA 快取。帳號登入不等於 API 授權。</span></div>
+      <div class="section-heading lower"><h2>研究依據</h2></div>
+      <div class="source-links"><a href="https://www.gold.org/goldhub/research/qaurum-vs-us-real-rates-and-dollar-model" target="_blank" rel="noopener">World Gold Council：美元與利率關係的限制 <i data-lucide="arrow-up-right"></i></a><a href="https://gold-api.com/faqs" target="_blank" rel="noopener">Gold API：報價定義與更新頻率 <i data-lucide="arrow-up-right"></i></a><a href="https://fred.stlouisfed.org/series/DFII10" target="_blank" rel="noopener">FRED：10 年實質殖利率 <i data-lucide="arrow-up-right"></i></a></div>
+    </section>
+  </main>
+  <button id="mobile-summary" class="mobile-summary" hidden><span>黃金情境</span><strong id="mobile-direction">方向分歧</strong><i data-lucide="arrow-up-right"></i></button>
+  <footer><span>PAW / 黃金跨市場研究</span><span>研究用途，無自動下單</span></footer>
+  <script type="module" src="app.js"></script>
 </body>
 </html>
