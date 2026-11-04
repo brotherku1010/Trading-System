@@ -15,6 +15,7 @@ let apiBase = '';
 let adminToken = '';
 let analysisTask;
 let providerTouched = false;
+let billingConfirmationTouched = false;
 const api = createApiClient({ getBase: () => apiBase, getToken: () => $('settings-token')?.value || $('analysis-token')?.value || adminToken });
 
 function localRead(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } }
@@ -39,12 +40,25 @@ function updateAnalysisButton() {
 function applyConfig(config) {
   state.config = config;
   const gemini = config.geminiSettings || {};
+  const freeOnly = config.aiPolicy?.mode === 'free-tier-only';
+  const paidOption = $('ai-provider').querySelector('option[value="openai"]');
+  paidOption.disabled = freeOnly;
+  if (freeOnly) $('ai-provider').value = 'gemini';
+  if (!billingConfirmationTouched) $('gemini-free-confirm').checked = Boolean(gemini.freeTierConfirmed);
+  $('ai-cost-status').textContent = freeOnly
+    ? gemini.freeTierConfirmed ? '免費方案限制 · 使用者已確認未啟用計費（非 Google 帳務驗證） · 額度不足即停止'
+      : '免費方案限制 · 帳務狀態未確認或已過期，生成與連線測試暫停 · Key 保留'
+    : '此後端尚未啟用免費方案限制，請勿發送生成要求。';
   $('ai-status').textContent = [config.openai ? 'OpenAI 已設定' : '', config.gemini ? 'Gemini 已設定' : ''].filter(Boolean).join(' · ') || '未設定 AI，不影響情境研究';
   if (!providerTouched && !draftKey() && config.openai && !config.gemini) $('ai-provider').value = 'openai';
   $('admin-token-label').hidden = Boolean(config.localAdmin);
   $('copy-admin-token').hidden = !config.localAdmin;
   $('analysis-token').closest('label').hidden = Boolean(config.localAdmin);
   if (gemini.model) { $('gemini-model').value ||= gemini.model; $('analysis-model').value ||= gemini.model; }
+  if (freeOnly) {
+    for (const id of ['gemini-model', 'analysis-model']) if (!config.aiPolicy.models.includes($(id).value)) $(id).value = config.aiPolicy.models[0];
+    $('gemini-model-list').innerHTML = config.aiPolicy.models.map(model => `<option value="${esc(model)}"></option>`).join('');
+  }
   $('gemini-key-status').textContent = gemini.saved ? `已加密儲存 · ${gemini.model} · ${timestamp(gemini.updatedAt)}` : gemini.legacy ? '使用伺服器環境變數' : gemini.disabled ? 'Key 已刪除' : gemini.persistent ? '尚未儲存 Key' : '後端尚未啟用加密保存';
   $('gemini-save').disabled = !gemini.persistent;
   $('gemini-delete').disabled = !gemini.persistent || (!gemini.saved && !gemini.legacy);
@@ -55,13 +69,15 @@ function applyConfig(config) {
 async function refreshConfig(options) { applyConfig(await api('/api/config', options)); }
 
 function applySavedGemini(result, savedKey = '') {
-  applyConfig({ ...state.config, gemini: true, geminiSettings: { ...state.config.geminiSettings, ...result, saved: true, disabled: false, legacy: false, available: true, persistent: true } });
+  billingConfirmationTouched = false;
+  applyConfig({ ...state.config, gemini: true, geminiSettings: { ...state.config.geminiSettings, ...result, freeTierConfirmed: Boolean(result.freeTierConfirmedAt && Date.now() - Date.parse(result.freeTierConfirmedAt) < 86400000), saved: true, disabled: false, legacy: false, available: true, persistent: true } });
   $('gemini-model').value = result.model; $('analysis-model').value = result.model;
   for (const id of ['gemini-api-key', 'analysis-api-key']) if ($(id).value.trim() === savedKey) $(id).value = '';
   updateAnalysisButton();
 }
 
 async function prepareGemini(signal) {
+  if (state.config.aiPolicy?.mode !== 'free-tier-only') throw new Error('後端尚未啟用免費方案限制，已停止分析。');
   const key = draftKey();
   if ($('analysis-api-key').value.trim() && $('gemini-api-key').value.trim() && $('analysis-api-key').value.trim() !== $('gemini-api-key').value.trim()) throw new Error('分析區與設定頁輸入了不同的 Key，請先確認要使用哪一個。');
   const stored = state.config.geminiSettings;
@@ -80,6 +96,7 @@ async function prepareGemini(signal) {
     applySavedGemini(saved, key);
     $('gemini-settings-result').textContent = 'Key 已加密保存在後端。';
   }
+  if (!state.config.geminiSettings?.freeTierConfirmed) throw new Error('請先在設定頁確認 Google 專案未啟用計費並儲存；目前不會發送生成要求。');
 }
 
 async function keyAction(button, task) {
@@ -441,7 +458,7 @@ function setup() {
     event.preventDefault();
     keyAction($('gemini-save'), async () => {
       const key = $('gemini-api-key').value.trim();
-      const result = await api('/api/settings/gemini', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey: key, model: $('gemini-model').value }) });
+      const result = await api('/api/settings/gemini', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey: key, model: $('gemini-model').value, confirmFreeTier: $('gemini-free-confirm').checked }) });
       applySavedGemini(result, key);
       $('gemini-settings-result').textContent = 'Key 已加密保存在後端；關閉或重新整理不會清除。尚未進行連線測試。';
     });
@@ -454,9 +471,18 @@ function setup() {
     $('gemini-settings-result').textContent = `取得 ${data.models.length} 個文字生成模型；模型選擇與額度依 Google 帳戶權限。尚未儲存變更。`;
   }));
   $('gemini-test').addEventListener('click', () => keyAction($('gemini-test'), async () => {
-    const data = await api('/api/settings/gemini/test', { method: 'POST' });
-    $('gemini-settings-result').textContent = `連線成功 · ${data.model} · ${timestamp(data.testedAt)}`;
+    if (state.config.aiPolicy?.mode !== 'free-tier-only') throw new Error('後端尚未啟用免費方案限制，已停止測試。');
+    const model = $('gemini-model').value.trim();
+    const query = model ? `?${new URLSearchParams({ model })}` : '';
+    const data = await api(`/api/settings/gemini/test${query}`, { method: 'POST' });
+    const saved = data.model === state.config.geminiSettings?.model;
+    $('gemini-settings-result').textContent = `連線成功 · ${data.model} · ${timestamp(data.testedAt)}${saved ? '' : ' · 測試未變更設定；請儲存以供分析使用。'}`;
   }));
+  $('gemini-free-confirm').addEventListener('change', () => { billingConfirmationTouched = true; });
+  for (const id of ['gemini-api-key', 'analysis-api-key']) $(id).addEventListener('input', () => {
+    billingConfirmationTouched = true;
+    $('gemini-free-confirm').checked = false;
+  });
   $('gemini-delete').addEventListener('click', () => {
     $('gemini-delete-dialog').returnValue = '';
     $('gemini-delete-dialog').showModal();

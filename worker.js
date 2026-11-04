@@ -3,6 +3,8 @@ import { scenarioScore } from './lib/analysis.js';
 import { getSnapshot, getQuote, getHistory, getNews, getCalendar, requestJson } from './lib/providers.js';
 import { json, authorized, isLocalAdmin, allowedOrigin, withCors, readJson } from './lib/http.js';
 import { geminiStatus, geminiCredentials, handleGeminiSettings } from './lib/vault.js';
+import { generateGemini } from './lib/gemini.js';
+import { aiPolicy, assertFreeGeneration } from './lib/ai-policy.js';
 export { CredentialVault } from './lib/vault.js';
 
 const aiCooldown = new Map();
@@ -33,7 +35,7 @@ async function route(request, env) {
       if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405);
       if (path === '/api/config') { const gemini = await geminiStatus(env); return json({
         twelveData: Boolean(env.TWELVE_DATA_API_KEY),
-        openai: Boolean(env.OPENAI_API_KEY && env.OPENAI_MODEL && env.ANALYSIS_TOKEN),
+        openai: false, aiPolicy,
         gemini: Boolean(gemini.available && (env.ANALYSIS_TOKEN || isLocalAdmin(request, env))),
         geminiSettings: gemini, localAdmin: isLocalAdmin(request, env),
         refreshSeconds: 60, analysisProtected: true, apiVersion: 3
@@ -58,10 +60,12 @@ async function analyze(request, env) {
   const body = await readJson(request);
   const provider = body.provider;
   if (!['openai', 'gemini'].includes(provider)) return json({ error: '未知 AI 服務' }, 400);
+  if (provider !== 'gemini') return json({ error: '免費方案限制：已停用付費 AI 服務，不會自動切換供應商。' }, 403);
   const gemini = provider === 'gemini' ? await geminiCredentials(env) : null;
   const key = provider === 'openai' ? env.OPENAI_API_KEY : gemini?.apiKey;
   const model = provider === 'openai' ? env.OPENAI_MODEL : gemini?.model;
   if (!key || !model) return json({ error: '伺服器尚未設定此 AI 的 Key 與模型' }, 503);
+  assertFreeGeneration(gemini);
   const client = request.headers.get('CF-Connecting-IP') || 'local';
   if (Date.now() - (aiCooldown.get(client) || 0) < 30000) return json({ error: '請間隔 30 秒再進行分析' }, 429);
   if (aiCooldown.size > 1000) aiCooldown.clear();
@@ -78,11 +82,11 @@ async function analyze(request, env) {
     }, 45000);
     result = data.output?.flatMap(item => item.content || []).filter(item => item.type === 'output_text').map(item => item.text).join('\n');
   } else {
-    const data = await requestJson(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-      method: 'POST', headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ systemInstruction: { parts: [{ text: instructions }] }, contents: [{ role: 'user', parts: [{ text: input }] }], generationConfig: { maxOutputTokens: 1800 } })
-    }, 45000);
-    result = data.candidates?.[0]?.content?.parts?.map(part => part.text || '').join('\n');
+    result = await generateGemini(gemini, {
+      systemInstruction: { parts: [{ text: instructions }] },
+      contents: [{ role: 'user', parts: [{ text: input }] }],
+      generationConfig: { maxOutputTokens: 1800 }
+    });
   }
   if (!result) return json({ error: 'AI 未回傳可顯示的內容，可能為額度、拒答或輸出限制。' }, 502);
   return json({ text: result, provider, model, generatedAt: new Date().toISOString(), evidence: '伺服器行情與假設情境；未使用即時新聞或歷史回測', disclaimer: 'AI 解讀不構成個人化投資建議。' });

@@ -75,30 +75,24 @@ test('AI rejects missing authorization, cross-site requests and invalid JSON', a
   assert.equal((await worker.fetch(new Request('https://local/api/analyze', options), env)).status, 400);
   assert.equal((await worker.fetch(new Request('https://local/api/analyze', { ...options, headers: { ...options.headers, Origin: 'https://foreign' } }), env)).status, 403);
 });
-test('OpenAI analysis sends server quote with storage disabled and extracts output_text', async () => {
+test('free-only policy blocks OpenAI before contacting a provider', async () => {
   globalThis.fetch = async (url, options) => {
-    if (url.includes('gold-api')) return output({ price: 2000, updatedAt: new Date().toISOString() });
-    assert.equal(url, 'https://api.openai.com/v1/responses');
-    const body = JSON.parse(options.body); assert.equal(body.store, false); assert.ok(body.input.includes('2000'));
-    return output({ output: [{ content: [{ type: 'output_text', text: '假設情境分析' }] }] });
+    assert.fail('No upstream request is allowed');
   };
   const env = { ANALYSIS_TOKEN: 'test-only', OPENAI_API_KEY: 'mock', OPENAI_MODEL: 'configured-model' };
   const response = await worker.fetch(new Request('https://local/api/analyze', { method: 'POST', headers: { Authorization: 'Bearer test-only', 'Content-Type': 'application/json', 'CF-Connecting-IP': 'test-openai' }, body: JSON.stringify({ provider: 'openai', directions: { DXY: 1 } }) }), env);
-  assert.equal(response.status, 200); assert.equal((await response.json()).text, '假設情境分析');
+  assert.equal(response.status, 403);
 });
 
-test('Gemini uses a server header and extracts candidate parts, with per-client cooldown', async () => {
+test('legacy Gemini environment credentials cannot bypass free-only policy', async () => {
   globalThis.fetch = async (url, options) => {
-    if (url.includes('gold-api')) return output({ price: 2000, updatedAt: new Date().toISOString() });
-    assert.match(url, /:generateContent$/);
-    assert.equal(options.headers['x-goog-api-key'], 'gemini-mock');
-    return output({ candidates: [{ content: { parts: [{ text: 'Gemini 測試分析' }] } }] });
+    assert.fail('No upstream request is allowed');
   };
-  const env = { ANALYSIS_TOKEN: 'test-only', GEMINI_API_KEY: 'gemini-mock', GEMINI_MODEL: 'configured-gemini' };
+  const env = { ANALYSIS_TOKEN: 'test-only', GEMINI_API_KEY: 'gemini-mock', GEMINI_MODEL: 'gemini-3.1-flash-lite' };
   const request = () => new Request('https://local/api/analyze', { method: 'POST', headers: { Authorization: 'Bearer test-only', 'Content-Type': 'application/json', 'CF-Connecting-IP': 'test-gemini' }, body: JSON.stringify({ provider: 'gemini' }) });
   const response = await worker.fetch(request(), env);
-  assert.equal(response.status, 200); assert.equal((await response.json()).text, 'Gemini 測試分析');
-  assert.equal((await worker.fetch(request(), env)).status, 429);
+  assert.equal(response.status, 403);
+  assert.match((await response.json()).error, /生成已暫停/);
 });
 test('AI refuses oversized streaming input even without Content-Length', async () => {
   const response = await worker.fetch(new Request('https://local/api/analyze', { method: 'POST', headers: { Authorization: 'Bearer local-access', 'Content-Type': 'application/json' }, body: JSON.stringify({ question: 'a'.repeat(13000) }) }), { ANALYSIS_TOKEN: 'local-access' });

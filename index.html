@@ -90,10 +90,13 @@
       <div class="table-scroll"><table class="audit-table"><thead><tr><th>品項</th><th>來源／商品</th><th>時間（台北）</th><th>狀態</th></tr></thead><tbody id="audit-rows"></tbody></table></div>
       <div class="section-heading lower"><h2>伺服器連線</h2></div><div id="provider-status" class="provider-status"></div>
       <div class="section-heading lower"><h2>Gemini Key</h2><span id="gemini-key-status" class="muted" role="status">正在確認儲存狀態</span><button id="copy-admin-token" type="button" class="secondary" hidden><i data-lucide="copy"></i>複製管理存取碼</button></div>
+      <p id="ai-cost-status" class="credential-result" role="status">免費方案限制：帳務狀態待確認，生成暫停。</p>
+      <p><a href="https://aistudio.google.com/projects" target="_blank" rel="noopener noreferrer">Google 專案計費狀態</a> · <a href="https://ai.google.dev/gemini-api/docs/pricing" target="_blank" rel="noopener noreferrer">官方價格</a></p>
       <form id="gemini-settings" class="credential-form">
         <label id="admin-token-label">管理存取碼<input id="settings-token" type="password" autocomplete="off"></label>
         <label class="key-label">Gemini API Key<input id="gemini-api-key" type="password" autocomplete="off" spellcheck="false" maxlength="256" placeholder="首次輸入或替換 Key"></label>
         <label>模型<input id="gemini-model" type="text" list="gemini-model-list" autocomplete="off" maxlength="128" placeholder="選擇可用模型"><datalist id="gemini-model-list"></datalist></label>
+        <label class="free-tier-confirm"><input id="gemini-free-confirm" type="checkbox">我已確認此 Key 的 Google 專案為 Free，且未啟用計費（本次確認有效 24 小時）</label>
         <div class="credential-actions"><button id="gemini-models" type="button" class="secondary"><i data-lucide="list"></i>可用模型</button><button id="gemini-save" type="submit" class="primary"><i data-lucide="save"></i>儲存</button><button id="gemini-test" type="button" class="secondary"><i data-lucide="plug-zap"></i>連線測試</button><button id="gemini-delete" type="button" class="secondary"><i data-lucide="trash-2"></i>刪除 Key</button></div>
       </form><p id="gemini-settings-result" class="credential-result" role="status"></p>
       <div class="research-note"><i data-lucide="lock-keyhole"></i><span>Key 加密保留至主動刪除，不會回傳完整 Key。連線測試會向 Google 發送一次小型請求，可能計入額度；刪除僅移除本系統保存的 Key，不撤銷 Google 的 Key。</span></div>

@@ -102,20 +102,24 @@ Gemini Key 以 AES-256-GCM 加密存在 Cloudflare SQLite-backed Durable Object�
 
 不要輪替或刪除 `VAULT_ENCRYPTION_KEY`，否則已保存的 Key 無法解密。部署腳本只補齊不存在的 Secrets，不會覆寫既有值；備份與輪替需另外規劃。
 
-其他選配供應商仍使用伺服器環境變數：
+其他選配行情供應商仍使用伺服器環境變數：
 
 ```powershell
 npx wrangler secret put TWELVE_DATA_API_KEY
-npx wrangler secret put OPENAI_API_KEY
-npx wrangler secret put OPENAI_MODEL
 npx wrangler secret put ANALYSIS_TOKEN
 ```
 
-也保留 `GEMINI_API_KEY` 與 `GEMINI_MODEL` 相容模式，但以介面保存的 Key 優先。模型名稱依 Google 回傳的可用模型選擇。`MARKET_SYMBOLS_JSON` 可覆寫 DXY、WTI 或股指代號。模型、Key、存取保護都存在才啟用 AI。
+舊的 `GEMINI_API_KEY` 與 `GEMINI_MODEL` 可供狀態讀取，但不能繞過免費方案確認。`MARKET_SYMBOLS_JSON` 可覆寫 DXY、WTI 或股指代號。
 
-AI 使用 [OpenAI Responses](https://developers.openai.com/api/docs/guides/text) 或 [Gemini generateContent](https://ai.google.dev/gemini-api/docs/text-generation)。沒有自動下單或取得其他帳戶資料。OpenAI 要求 `store:false`；其他資料保留條件依供應商政策。模型看到的是伺服器黃金參考行情、情境與問題，不含 CSV、歷史機率、即時新聞或總經資料；輸出明確標示此證據範圍。
+AI 使用 [Gemini generateContent](https://ai.google.dev/gemini-api/docs/text-generation)。沒有自動下單或取得其他帳戶資料。模型看到的是伺服器黃金參考行情、情境與問題，不含 CSV、歷史機率、即時新聞或總經資料；輸出明確標示此證據範圍。
 
-AI 端點要求 `ANALYSIS_TOKEN`、同源或明確允許的 Pages origin、12 KB 上限與單 isolate 每 IP 30 秒冷卻。Key 設定端點另設 2 KB 上限並要求管理存取碼。冷卻不是跨節點的費用防線；公開部署仍建議 Cloudflare Access / WAF rate limiting，並為 Google 設定預算／額度限制。付費行情 GET 目前為站台公開讀取，持有站台連結的人能消耗快取未命中額度。不要放入不限額 Key。
+### 免費方案限制
+
+依 2026-11-04 的 [Google 官方價格](https://ai.google.dev/gemini-api/docs/pricing)，Gemini 3.1 Pro API 沒有免費層。後端只允許固定 ID `gemini-3.1-flash-lite` 的文字生成，封鎖 Pro、latest 別名、其他模型與 OpenAI；連線測試適用相同限制。429 不重試、不切換模型或服務，也不啟用搜尋等額外計費工具。
+
+有免費層的模型在付費專案仍可能計費。API Key 與模型清單不能證明專案未啟用計費，也不能取得全專案剩餘免費額度。既有 Key 預設暫停生成，直到擁有者在 Google AI Studio 確認專案為 Free、未啟用計費，並在設定頁勾選確認及儲存。此為使用者聲明，不是 Google 帳務驗證；有效 24 小時，替換 Key 後須重新確認，過期時停止生成但保留 Key。請使用專用且未連結計費帳戶的專案，若日後啟用計費應立即取消確認；單靠本系統無法對付費專案保證零費用。Google 依專案實際免費額度拒絕超額請求，本機不虛構「剩餘額度」。限制不涵蓋其他應用使用相同 Key，或 Cloudflare／行情服務本身的費用。
+
+AI 端點要求 `ANALYSIS_TOKEN`、同源或明確允許的 Pages origin、12 KB 上限與單 isolate 每 IP 30 秒冷卻。Key 設定端點另設 2 KB 上限並要求管理存取碼。冷卻或預算通知不是零費用保證。付費行情 GET 目前為站台公開讀取，持有站台連結的人能消耗快取未命中額度。不要放入不限額 Key。
 
 ## 驗證
 
